@@ -115,6 +115,12 @@
         <div class="md-item" data-cmd="table:del-row"><span class="md-label">줄 지우기</span></div>
         <div class="md-item" data-cmd="table:del-col"><span class="md-label">칸 지우기</span></div>
         <div class="md-item" data-cmd="table:del-table"><span class="md-label">표 지우기</span></div>
+        <div class="md-sep"></div>
+        <div class="md-item" data-cmd="table:valign-top"><span class="md-check"></span><span class="md-label">셀 위쪽 정렬</span></div>
+        <div class="md-item" data-cmd="table:valign-center"><span class="md-check"></span><span class="md-label">셀 가운데 정렬</span></div>
+        <div class="md-item" data-cmd="table:valign-bottom"><span class="md-check"></span><span class="md-label">셀 아래쪽 정렬</span></div>
+        <div class="md-sep"></div>
+        <div class="md-item md-hint"><span class="md-label">칸 너비·줄 높이: 표 테두리선을 끌어서 조절</span></div>
       </div>
     </div>
     <div class="menu-item" data-menu="tool">
@@ -192,6 +198,10 @@
     <button class="sb-btn" id="btn-align-center" data-cmd="format:align-center" title="가운데 정렬 (Ctrl+E)"><span class="tb-icon sm" data-icon="ac"></span></button>
     <button class="sb-btn" id="btn-align-right" data-cmd="format:align-right" title="오른쪽 정렬 (Ctrl+R)"><span class="tb-icon sm" data-icon="ar"></span></button>
     <button class="sb-btn" id="btn-align-justify" data-cmd="format:align-justify" title="양쪽 정렬 (Ctrl+J)"><span class="tb-icon sm" data-icon="aj"></span></button>
+    <span class="sb-sep"></span>
+    <button class="sb-btn" id="btn-valign-top" data-cmd="table:valign-top" title="셀 위쪽 정렬"><span class="tb-icon sm" data-icon="vtop"></span></button>
+    <button class="sb-btn" id="btn-valign-center" data-cmd="table:valign-center" title="셀 가운데 정렬"><span class="tb-icon sm" data-icon="vmid"></span></button>
+    <button class="sb-btn" id="btn-valign-bottom" data-cmd="table:valign-bottom" title="셀 아래쪽 정렬"><span class="tb-icon sm" data-icon="vbot"></span></button>
     <span class="sb-sep"></span>
     <select id="line-spacing" class="sb-combo sb-line" title="줄 간격">
       <option value="">줄 간격</option>

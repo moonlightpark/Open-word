@@ -21,6 +21,12 @@ const file = new URLSearchParams(location.search).get('file');
     }
   }
   await app.newDocument();
-})();
+})().then(async () => {
+  // Dev only: end-to-end self test (stripped from production builds).
+  if (import.meta.env.DEV && new URLSearchParams(location.search).has('selftest')) {
+    const { runSelfTest } = await import('./selftest');
+    await runSelfTest(app);
+  }
+});
 
 (window as unknown as { oword: App }).oword = app;

@@ -207,6 +207,12 @@ export class App {
     $('tb-bullet').classList.toggle('active', inList && !!pf?.numId && doc!.numbering.isBullet(pf.numId, pf.ilvl ?? 0));
     $('tb-numbering').classList.toggle('active', inList && !!pf?.numId && !doc!.numbering.isBullet(pf.numId, pf.ilvl ?? 0));
     const cell = st && doc?.cellOf(st.pi);
+    const va = st && doc ? doc.cellVAlign(st.pi) : null;
+    for (const v of ['top', 'center', 'bottom']) {
+      const b = $(`btn-valign-${v}`);
+      b.classList.toggle('active', va === v);
+      b.classList.toggle('disabled', !va);
+    }
     $('sb-mode').textContent = cell ? '표' : this.editor.collapsed() ? '입력' : '선택';
     this.markOutline(st?.pi ?? -1);
   }
@@ -545,6 +551,21 @@ export class App {
     for (const op of ['row-above', 'row-below', 'col-left', 'col-right', 'del-row', 'del-col', 'del-table'] as const) {
       c.register(`table:${op}`, { run: () => this.structural((pos) => d().tableOp(pos.pi, op)), enabled: this.inTable });
     }
+    for (const v of ['top', 'center', 'bottom'] as const) {
+      c.register(`table:valign-${v}`, {
+        run: () => {
+          ed.commit();
+          const r = ed.getRange();
+          if (!r) return;
+          d().setCellVAlign(d().paraRange(r), v);
+          ed.render();
+          ed.setRange(r, false);
+          this.queueSync();
+        },
+        enabled: this.inTable,
+        checked: () => { const r = ed.getRange(); return !!r && !!this.doc && d().cellVAlign(r.start.pi) === v; },
+      });
+    }
     // tools
     c.register('tool:stats', { run: () => this.statsDialog(), enabled: this.hasDoc });
     c.register('tool:shortcuts', () => {
@@ -687,6 +708,10 @@ export class App {
         { label: '줄 지우기', action: run('table:del-row') },
         { label: '칸 지우기', action: run('table:del-col') },
         { label: '표 지우기', action: run('table:del-table') },
+        { sep: true },
+        { label: '셀 위쪽 정렬', action: run('table:valign-top') },
+        { label: '셀 가운데 정렬', action: run('table:valign-center') },
+        { label: '셀 아래쪽 정렬', action: run('table:valign-bottom') },
       );
       contextMenu(e.clientX, e.clientY, items as Parameters<typeof contextMenu>[2]);
     });

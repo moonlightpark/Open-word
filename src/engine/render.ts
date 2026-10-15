@@ -4,6 +4,7 @@
 import { DocxDocument } from './document';
 import { Item } from './model';
 import { REL } from './package';
+import { bulletChar } from './numbering';
 import { Border, RunFmt, parseBorders } from './styles';
 import { NS, child, children, descendants, getRId, is, num, path, wa, wnum } from './xml';
 
@@ -259,6 +260,7 @@ function renderItems(p: Element, items: Item[], ctx: RenderCtx, el: HTMLElement)
       const c = containers[k];
       const w = document.createElement(c.localName === 'hyperlink' ? 'a' : 'span');
       w.className = 'w-' + c.localName;
+      if (c.localName === 'ins' || c.localName === 'moveTo') w.title = `삽입: ${wa(c, 'author') ?? ''}`;
       if (c.localName === 'hyperlink') {
         const id = getRId(c, 'id');
         const url = id ? doc.pkg.rel(ctx.part, id)?.target : null;
@@ -279,6 +281,7 @@ function renderItems(p: Element, items: Item[], ctx: RenderCtx, el: HTMLElement)
   };
   let visible = 0;
   let last: Item | null = null;
+  const comments = new Set<string>();
   for (const it of items) {
     const parent = parentFor(it.containers);
     switch (it.kind) {
@@ -287,6 +290,7 @@ function renderItems(p: Element, items: Item[], ctx: RenderCtx, el: HTMLElement)
         if (ctx.editable) span.dataset.r = String(reg.runs.push(it.rPr) - 1);
         runCss(span, doc.runFmt(p, it.rPr));
         span.textContent = it.text;
+        if (comments.size) span.classList.add('w-cmt-range');
         parent.appendChild(span);
         break;
       }
@@ -325,6 +329,7 @@ function renderItems(p: Element, items: Item[], ctx: RenderCtx, el: HTMLElement)
         else if ((kw === 'NUMPAGES' || kw === 'SECTIONPAGES') && ctx.pages) text = String(ctx.pages);
         span.textContent = text || (kw === 'PAGE' ? '#' : '');
         span.title = instr;
+        if (kw === 'PAGE' || kw === 'NUMPAGES' || kw === 'SECTIONPAGES') span.dataset.fld = kw;
         parent.appendChild(span);
         break;
       }
@@ -338,8 +343,25 @@ function renderItems(p: Element, items: Item[], ctx: RenderCtx, el: HTMLElement)
       }
       case 'hidden': {
         const span = atom(it, document.createElement('span'));
-        span.hidden = true;
-        span.className = 'w-hid';
+        const n = it.nodes[0];
+        const local = n.namespaceURI === NS.w ? n.localName : '';
+        if (local === 'commentRangeStart') comments.add(wa(n, 'id') ?? '');
+        if (local === 'commentRangeEnd') comments.delete(wa(n, 'id') ?? '');
+        const cref = local === 'r' ? child(n, 'w:commentReference') : null;
+        if (local === 'del' || local === 'moveFrom') {
+          // Tracked deletion: shown struck through, never editable, zero length in the model.
+          span.className = 'w-del';
+          span.contentEditable = 'false';
+          span.textContent = Array.from(n.getElementsByTagNameNS(NS.w, 'delText')).map((t) => t.textContent).join('') || n.textContent || '';
+          span.title = `삭제: ${wa(n, 'author') ?? ''}`;
+        } else if (cref) {
+          span.className = 'w-cmt';
+          span.contentEditable = 'false';
+          span.title = doc.commentText(wa(cref, 'id') ?? '');
+        } else {
+          span.hidden = true;
+          span.className = 'w-hid';
+        }
         parent.appendChild(span);
         break;
       }
@@ -380,7 +402,22 @@ function placeholderBox(span: HTMLElement, size: { w: number; h: number } | null
 function renderDrawing(drawing: Element, ctx: RenderCtx, span: HTMLElement) {
   const frame = child(drawing, 'wp:inline') ?? child(drawing, 'wp:anchor');
   const size = extentPt(child(frame, 'wp:extent'));
-  if (frame && is(frame, 'wp:anchor')) span.classList.add('w-anchor');
+  if (frame && is(frame, 'wp:anchor')) {
+    span.classList.add('w-anchor');
+    const wrap = children(frame).find((c) => c.localName.startsWith('wrap'))?.localName ?? 'wrapNone';
+    const align = path(frame, 'wp:positionH', 'wp:align')?.textContent;
+    const off = Number(path(frame, 'wp:positionH', 'wp:posOffset')?.textContent ?? 0) / 12700;
+    const side = align === 'right' || align === 'outside' ? 'right' : align === 'center' ? 'center' : align === 'left' || align === 'inside' ? 'left' : off > 200 ? 'right' : 'left';
+    const dist = (k: string) => num(frame, k) / 12700;
+    if (wrap === 'wrapTopAndBottom' || side === 'center') {
+      span.classList.add('w-anchor-block');
+      span.style.textAlign = side === 'right' ? 'right' : side === 'center' ? 'center' : 'left';
+      span.style.margin = `${dist('distT')}pt 0 ${dist('distB')}pt`;
+    } else if (wrap !== 'wrapNone') {
+      span.style.float = side;
+      span.style.margin = side === 'right' ? `${dist('distT')}pt 0 ${dist('distB')}pt ${Math.max(6, dist('distL'))}pt` : `${dist('distT')}pt ${Math.max(6, dist('distR'))}pt ${dist('distB')}pt 0`;
+    }
+  }
   const blip = descendants(drawing, 'a:blip')[0];
   const txbx = descendants(drawing, 'w:txbxContent')[0];
   const uri = descendants(drawing, 'a:graphicData')[0]?.getAttribute('uri') ?? '';
@@ -448,7 +485,7 @@ function renderAtom(p: Element, it: Item, ctx: RenderCtx, span: HTMLElement) {
   }
   if (o.namespaceURI === NS.m) {
     span.classList.add('w-math');
-    span.textContent = o.textContent ?? '';
+    renderMath(o, span);
     return;
   }
   switch (o.localName) {
@@ -457,8 +494,8 @@ function renderAtom(p: Element, it: Item, ctx: RenderCtx, span: HTMLElement) {
     case 'sym': {
       const code = parseInt(wa(o, 'char') ?? '20', 16);
       const font = wa(o, 'font');
-      span.textContent = String.fromCharCode(code >= 0xf000 ? code - 0xf000 : code);
-      if (fmt) runCss(span, { ...fmt, ascii: font ?? fmt.ascii });
+      span.textContent = symbolChar(font, code);
+      if (fmt) runCss(span, fmt);
       return;
     }
     case 'footnoteReference': case 'endnoteReference': {
@@ -526,7 +563,11 @@ export function renderTable(tbl: Element, ctx: RenderCtx): HTMLElement {
   for (const w of cols) { const c = document.createElement('col'); c.style.width = pt(w); cg.appendChild(c); }
   table.appendChild(cg);
   const total = cols.reduce((a, b) => a + b, 0);
-  if (total) table.style.width = pt(total);
+  if (is(tbl.parentElement, 'w:tc')) {
+    // Nested tables fit their cell (Word autofits them).
+    table.style.width = '100%';
+    if (total) cg.querySelectorAll('col').forEach((c, i) => { c.style.width = `${(cols[i] / total) * 100}%`; });
+  } else if (total) table.style.width = pt(total);
   const jc = wa(child(tblPr, 'w:jc'), 'val');
   if (jc === 'center') table.style.alignSelf = 'center';
   else if (jc === 'right' || jc === 'end') table.style.alignSelf = 'flex-end';
@@ -549,6 +590,8 @@ export function renderTable(tbl: Element, ctx: RenderCtx): HTMLElement {
       if (cell.vmerge === 'continue') continue;
       const td = document.createElement('td');
       if (ctx.editable) ctx.reg.dom.set(td, cell.tc);
+      td.dataset.col = String(cell.col);
+      td.dataset.row = String(ri);
       if (cell.span > 1) td.colSpan = cell.span;
       if (cell.vmerge === 'restart') {
         let n = 1;
@@ -594,4 +637,83 @@ export function renderHeaderFooter(doc: DocxDocument, images: ImageCache, part: 
   const root = doc.pkg.getXml(part)?.documentElement;
   if (root) renderBlocks(root, { doc, images, part, reg: newRegistry(), editable: false, page, pages }, host);
   return host;
+}
+
+// ---------------------------------------------------------------- symbols & math
+
+// Symbol font (Adobe Symbol encoding) letters → Greek.
+const SYMBOL_GREEK = 'ΑΒΧΔΕΦΓΗΙϑΚΛΜΝΟΠΘΡΣΤΥςΩΞΨΖ';
+const SYMBOL_greek = 'αβχδεφγηιϕκλμνοπθρστυϖωξψζ';
+const SYMBOL_MISC: Record<number, string> = { 0xb7: '•', 0xd7: '×', 0xb1: '±', 0xa5: '∞', 0xae: '→', 0xac: '←', 0xad: '↑', 0xaf: '↓', 0xde: '⇒', 0xdb: '⇔', 0xb9: '≠', 0xa3: '≤', 0xb3: '≥', 0xbb: '≈', 0xd6: '√', 0xe5: '∑', 0xf2: '∫', 0xb6: '∂', 0xa0: '€', 0xb0: '°', 0xd8: '¬', 0xd9: '∧', 0xda: '∨', 0xce: '∈', 0xc7: '∩', 0xc8: '∪', 0x22: '∀', 0x24: '∃' };
+
+export function symbolChar(font: string | null, code: number): string {
+  const c = code >= 0xf000 ? code - 0xf000 : code;
+  if (/symbol/i.test(font ?? '')) {
+    if (c >= 0x41 && c <= 0x5a) return SYMBOL_GREEK[c - 0x41];
+    if (c >= 0x61 && c <= 0x7a) return SYMBOL_greek[c - 0x61];
+    return SYMBOL_MISC[c] ?? String.fromCharCode(c);
+  }
+  if (/wingdings|webdings/i.test(font ?? '')) return bulletChar(String.fromCharCode(0xf000 + c));
+  return String.fromCharCode(c);
+}
+
+/** Minimal OMML rendering: runs, scripts, fractions, radicals, delimiters, n-ary operators. */
+function renderMath(el: Element, out: HTMLElement) {
+  const M = NS.m;
+  const kid = (e: Element, local: string) => Array.from(e.children).find((c) => c.localName === local && c.namespaceURI === M) ?? null;
+  const box = (tag: string, cls?: string) => { const b = document.createElement(tag); if (cls) b.className = cls; return b; };
+  const walk = (e: Element | null, host: HTMLElement) => {
+    if (!e) return;
+    for (const c of Array.from(e.children)) {
+      if (c.namespaceURI !== M) continue;
+      switch (c.localName) {
+        case 'r': host.append(Array.from(c.children).filter((t) => t.localName === 't').map((t) => t.textContent).join('')); break;
+        case 'sSup': case 'sSub': case 'sSubSup': {
+          walk(kid(c, 'e'), host);
+          if (c.localName !== 'sSup') { const b = box('sub'); walk(kid(c, 'sub'), b); host.appendChild(b); }
+          if (c.localName !== 'sSub') { const b = box('sup'); walk(kid(c, 'sup'), b); host.appendChild(b); }
+          break;
+        }
+        case 'f': {
+          const f = box('span', 'w-frac');
+          const n = box('span'), d = box('span');
+          walk(kid(c, 'num'), n); walk(kid(c, 'den'), d);
+          f.append(n, d);
+          host.appendChild(f);
+          break;
+        }
+        case 'rad': {
+          host.append('√');
+          const b = box('span', 'w-rad');
+          walk(kid(c, 'e'), b);
+          host.appendChild(b);
+          break;
+        }
+        case 'd': {
+          const pr = kid(c, 'dPr');
+          const beg = pr && kid(pr, 'begChr') ? kid(pr, 'begChr')!.getAttributeNS(M, 'val') ?? '(' : '(';
+          const end = pr && kid(pr, 'endChr') ? kid(pr, 'endChr')!.getAttributeNS(M, 'val') ?? ')' : ')';
+          host.append(beg);
+          Array.from(c.children).filter((x) => x.localName === 'e').forEach((x, i) => { if (i) host.append(','); walk(x, host); });
+          host.append(end);
+          break;
+        }
+        case 'nary': {
+          const pr = kid(c, 'naryPr');
+          const chr = pr && kid(pr, 'chr') ? kid(pr, 'chr')!.getAttributeNS(M, 'val') ?? '∫' : '∫';
+          host.append(chr);
+          const sub = box('sub'), sup = box('sup');
+          walk(kid(c, 'sub'), sub); walk(kid(c, 'sup'), sup);
+          if (sub.textContent) host.appendChild(sub);
+          if (sup.textContent) host.appendChild(sup);
+          walk(kid(c, 'e'), host);
+          break;
+        }
+        case 'rPr': case 'ctrlPr': case 'oMathParaPr': break;
+        default: walk(c, host);
+      }
+    }
+  };
+  if (el.localName === 'oMath') walk(el, out);
+  else walk(el, out);
 }

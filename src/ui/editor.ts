@@ -145,9 +145,15 @@ export class DocEditor {
     this.root.classList.toggle('show-marks', this.showMarks);
     const blocks = Array.from(this.root.children).filter((c): c is HTMLElement => c instanceof HTMLElement && !c.hidden);
     for (const b of blocks) b.style.removeProperty('--push');
+    this.root.querySelectorAll(':scope > table > tbody > tr.pg-spacer').forEach((r) => r.remove());
     const stride = (g.H + this.gapPt) * PX; // px from one page's content top to the next
     const content = (g.H - g.top - g.bottom) * PX;
-    const measured = blocks.map((b) => ({ el: b, top: b.offsetTop, h: b.offsetHeight, mt: parseFloat(getComputedStyle(b).marginTop) || 0 }));
+    const measured = blocks.map((b) => {
+      const h = b.offsetHeight;
+      // A table only needs its first row to fit; later rows move to the next page one by one.
+      const first = b instanceof HTMLTableElement ? b.rows[0] : null;
+      return { el: b, top: b.offsetTop, h, fit: first ? first.offsetTop + first.offsetHeight : h, mt: parseFloat(getComputedStyle(b).marginTop) || 0 };
+    });
     const out: BlockBox[] = [];
     let shift = 0, page = 0, breakNext = false;
     for (const m of measured) {
@@ -162,9 +168,9 @@ export class DocEditor {
       const forced = breakNext || m.el.dataset.breakBefore === '1';
       breakNext = false;
       if (forced && !(atTop && y > 0)) pushTo(page + 1);
-      else if (y + m.h > pageTop + content && m.h <= content && !atTop) {
+      else if (y + m.fit > pageTop + content && m.fit <= content && !atTop) {
         const prev = out[out.length - 1];
-        if (prev && prev.el.dataset.keepNext === '1' && prev.page === page && prev.y - prev.mt > pageTop + 0.5 && prev.h + m.h <= content) {
+        if (prev && prev.el.dataset.keepNext === '1' && prev.page === page && prev.y - prev.mt > pageTop + 0.5 && prev.h + m.fit <= content) {
           // Keep a heading with the paragraph that follows it: move the heading instead.
           const delta = (page + 1) * stride - (prev.y - prev.mt);
           const cur = parseFloat(prev.el.style.getPropertyValue('--push')) || 0;
@@ -175,16 +181,57 @@ export class DocEditor {
           y = m.top + shift;
         } else pushTo(page + 1);
       }
-      const endPage = Math.max(page, Math.floor((y + m.h - 1) / stride));
-      out.push({ el: m.el, y, h: m.h, mt: m.mt, page, endPage });
+      let h = m.h;
+      if (m.el instanceof HTMLTableElement) {
+        // Split the table between rows: a spacer row carries the rest of the page and the gap.
+        let extra = 0, pg = page;
+        const cols = m.el.querySelector('colgroup')?.children.length || 1;
+        for (const tr of Array.from(m.el.rows).slice(1)) {
+          // offsetTop already includes spacer rows inserted above this one.
+          const rt = y + tr.offsetTop, rh = tr.offsetHeight;
+          const bottom = pg * stride + content;
+          if (rt + rh <= bottom) continue;
+          if (rh > content || rt <= pg * stride + 0.5) { pg = Math.floor((rt + rh) / stride); continue; }
+          const gap = (pg + 1) * stride - rt;
+          const sp = document.createElement('tr');
+          sp.className = 'pg-spacer';
+          sp.contentEditable = 'false';
+          const td = document.createElement('td');
+          td.colSpan = cols;
+          td.style.height = gap + 'px';
+          sp.appendChild(td);
+          tr.before(sp);
+          pg++;
+        }
+        extra = m.el.offsetHeight - m.h;
+        shift += extra;
+        h += extra;
+      }
+      const endPage = Math.max(page, Math.floor((y + h - 1) / stride));
+      out.push({ el: m.el, y, h, mt: m.mt, page, endPage });
       page = endPage;
       if (m.el.dataset.breakAfter === '1' || m.el.querySelector('.w-pgbr')) breakNext = true;
     }
     this.layout = out;
     this.pages = Math.max(1, (out.at(-1)?.endPage ?? 0) + 1 + (breakNext ? 1 : 0));
+    this.updateFields(out, stride);
     this.buildFrames(g);
     this.applyZoom();
     this.hooks.layoutChanged();
+  }
+
+  /** PAGE / NUMPAGES fields in the body show the laid-out values. */
+  private updateFields(boxes: BlockBox[], stride: number) {
+    for (const b of boxes) {
+      for (const f of Array.from(b.el.querySelectorAll<HTMLElement>('.w-fld[data-fld]'))) {
+        const p = f.closest('p.w-p') as HTMLElement | null;
+        const clean = p && this.reg.sig.get(p) === p.innerHTML;
+        const top = b.y + (f.getBoundingClientRect().top - b.el.getBoundingClientRect().top) / this.zoom;
+        const v = String(f.dataset.fld === 'PAGE' ? Math.floor(top / stride) + 1 : this.pages);
+        if (f.textContent !== v) f.textContent = v;
+        if (p && clean) this.reg.sig.set(p, p.innerHTML);
+      }
+    }
   }
 
   private buildFrames(g: ReturnType<DocEditor['geometry']>) {
@@ -426,8 +473,11 @@ export class DocEditor {
   private bind() {
     const root = this.root;
     root.addEventListener('beforeinput', (e) => this.onBeforeInput(e));
-    root.addEventListener('input', () => {
+    root.addEventListener('input', (e) => {
       this.pending = true;
+      // Safety net: a paragraph split the browser did natively is committed at once so that
+      // paragraph indices never drift (normally Enter is handled in onBeforeInput).
+      if ((e as InputEvent).inputType === 'insertParagraph' && !this.composing) { const r = this.getRange(); this.commit(); this.render(); if (r) this.setRange({ start: { pi: r.start.pi + 1, off: 0 }, end: { pi: r.start.pi + 1, off: 0 } }); return; }
       this.scheduleCommit();
       this.layoutSoon();
     });
@@ -436,6 +486,7 @@ export class DocEditor {
     root.addEventListener('blur', () => { if (!this.composing) this.commit(); });
     root.addEventListener('keydown', (e) => this.onKeyDown(e));
     root.addEventListener('mousedown', (e) => this.onMouseDown(e));
+    root.addEventListener('mousemove', (e) => this.onHover(e));
     root.addEventListener('click', (e) => {
       const a = (e.target as HTMLElement).closest('a.w-hyperlink') as HTMLElement | null;
       if (a?.dataset.href && (e.ctrlKey || e.metaKey)) window.open(a.dataset.href, '_blank');
@@ -551,7 +602,99 @@ export class DocEditor {
 
   // ---------------------------------------------------------------- images
 
+  // ---------------------------------------------------------------- table border dragging
+
+  /** The table border under the pointer: a column boundary or a row bottom. */
+  private tableEdge(e: MouseEvent): { kind: 'col' | 'row'; table: HTMLTableElement; index: number; pos: number } | null {
+    const td = (e.target as HTMLElement).closest?.('td') as HTMLTableCellElement | null;
+    if (!td || !this.root.contains(td) || td.dataset.col == null) return null;
+    const table = td.closest('table') as HTMLTableElement;
+    if (!this.reg.dom.get(table)) return null;
+    const r = td.getBoundingClientRect();
+    const tol = 4;
+    const col = Number(td.dataset.col);
+    if (Math.abs(e.clientX - r.right) <= tol) return { kind: 'col', table, index: col + td.colSpan, pos: r.right };
+    if (Math.abs(e.clientX - r.left) <= tol && col > 0) return { kind: 'col', table, index: col, pos: r.left };
+    if (Math.abs(e.clientY - r.bottom) <= tol) return { kind: 'row', table, index: Number(td.dataset.row) + td.rowSpan - 1, pos: r.bottom };
+    return null;
+  }
+
+  /** Current column widths in twips: the grid, or measured cells when the grid has none. */
+  private measuredWidths(table: HTMLTableElement, tbl: Element): number[] {
+    const grid = this.doc.columnWidths(tbl);
+    if (grid.length && grid.every((w) => w > 0)) return grid;
+    const n = Math.max(grid.length, table.querySelector('colgroup')?.children.length ?? 0);
+    const out = new Array(n).fill(0);
+    for (const td of Array.from(table.querySelectorAll<HTMLTableCellElement>(':scope > tbody > tr > td[data-col]'))) {
+      if (td.colSpan === 1) out[Number(td.dataset.col)] = Math.max(out[Number(td.dataset.col)], td.offsetWidth * 15); // px → twips
+    }
+    const avg = out.filter((w) => w > 0).reduce((a, b, _i, arr) => a + b / arr.length, 0) || 1440;
+    return out.map((w) => w || avg);
+  }
+
+  private onHover(e: MouseEvent) {
+    if (e.buttons) return;
+    const edge = this.tableEdge(e);
+    this.root.style.cursor = edge ? (edge.kind === 'col' ? 'col-resize' : 'row-resize') : '';
+  }
+
+  private startTableDrag(e: MouseEvent, edge: NonNullable<ReturnType<DocEditor['tableEdge']>>) {
+    e.preventDefault();
+    const tbl = this.reg.dom.get(edge.table)!;
+    const guide = document.createElement('div');
+    guide.className = 'tbl-guide ' + edge.kind;
+    const tr = edge.table.getBoundingClientRect();
+    const sc = this.wrap.closest('#scroll-container')!.getBoundingClientRect();
+    if (edge.kind === 'col') Object.assign(guide.style, { left: edge.pos + 'px', top: sc.top + 'px', height: sc.height + 'px' });
+    else Object.assign(guide.style, { top: edge.pos + 'px', left: Math.min(tr.left, sc.left) + 'px', width: Math.max(tr.width, sc.width) + 'px' });
+    document.body.appendChild(guide);
+    const start = edge.kind === 'col' ? e.clientX : e.clientY;
+    const widths = edge.kind === 'col' ? this.measuredWidths(edge.table, tbl) : [];
+    const k = edge.index;
+    // Limits so neither neighbouring column gets narrower than ~0.4 cm.
+    const minTw = 240, pxPerTw = (this.zoom * 4) / 3 / 20;
+    const lo = k > 0 ? -(widths[k - 1] - minTw) * pxPerTw : 0;
+    const hi = k < widths.length ? (widths[k] - minTw) * pxPerTw : Infinity;
+    const rowEl = edge.kind === 'row' ? Array.from(edge.table.rows).filter((r) => !r.classList.contains('pg-spacer'))[k] : null;
+    const rowH = rowEl ? rowEl.getBoundingClientRect().height : 0;
+    let delta = 0;
+    const move = (ev: MouseEvent) => {
+      if (edge.kind === 'col') {
+        delta = Math.max(lo, Math.min(hi, ev.clientX - start));
+        guide.style.left = edge.pos + delta + 'px';
+      } else {
+        delta = Math.max(-rowH + 8 * this.zoom, ev.clientY - start);
+        guide.style.top = edge.pos + delta + 'px';
+      }
+      this.hooks.status(edge.kind === 'col' ? `칸 너비 ${(delta / pxPerTw / 566.929 >= 0 ? '+' : '')}${(delta / pxPerTw / 566.929).toFixed(2)} cm` : `줄 높이 ${((rowH + delta) / this.zoom * 0.75 / 28.3465).toFixed(2)} cm`);
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      guide.remove();
+      if (Math.abs(delta) < 1) return;
+      const r = this.getRange();
+      this.commit();
+      if (edge.kind === 'col') {
+        const tw = delta / pxPerTw;
+        const ws = [...widths];
+        if (k > 0) ws[k - 1] += tw;
+        if (k < ws.length) ws[k] -= tw; // the right-hand neighbour gives up the space; the table keeps its width
+        this.doc.setColumnWidths(tbl, ws);
+      } else {
+        const twips = ((rowH + delta) / this.zoom) * 0.75 * 20;
+        this.doc.setRowHeight(tbl, k, twips);
+      }
+      this.render();
+      if (r) this.setRange(r, false);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }
+
   private onMouseDown(e: MouseEvent) {
+    const edge = this.tableEdge(e);
+    if (edge && e.button === 0) { this.startTableDrag(e, edge); return; }
     const t = e.target as HTMLElement;
     if (t.classList.contains('img-handle')) { this.startResize(e); return; }
     if (t.tagName === 'IMG' && t.closest('#doc-root')) {

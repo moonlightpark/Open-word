@@ -76,6 +76,10 @@ export function paraItems(p: Element): Item[] {
         // Inside a complex field every node belongs to the field until the matching end.
         field.nodes.push(n);
         if (isW && local === 'r') feed(n);
+        else if (isW && CONTAINERS.has(local)) {
+          // Field results often sit inside hyperlinks (TOC entries).
+          for (const r of Array.from(n.getElementsByTagNameNS(NS.w, 'r'))) { feed(r); if (!field) break; }
+        }
         continue;
       }
       if (!isW) {

@@ -8,7 +8,7 @@ import {
   mergeRuns, paraItems, paraLength, paraText, setParaProps, setRunProps, splitParagraph, walkParagraphs,
 } from './model';
 import { ParaFmt, RunFmt, StyleSheet, ThemeInfo, parseTheme } from './styles';
-import { NS, PPR_ORDER, SECTPR_ORDER, child, children, create, descendants, ensureOrdered, escapeXml, is, parseXml, path, removeChild, serializeXml, setAttr, wa, wnum } from './xml';
+import { NS, PPR_ORDER, SECTPR_ORDER, TBLPR_ORDER, TCPR_ORDER, TRPR_ORDER, child, children, create, descendants, ensureOrdered, escapeXml, is, parseXml, path, removeChild, serializeXml, setAttr, wa, wnum } from './xml';
 
 export const TWIP_PER_PT = 20;
 export const EMU_PER_PT = 12700;
@@ -552,9 +552,12 @@ export class DocxDocument {
       const atEnd = pos.off >= paraLength(p);
       const second = splitParagraph(p, pos.off);
       const style = this.styles.style(this.pStyleOf(p));
-      if (atEnd && style?.next && style.next !== style.id) {
-        const nextNum = this.styles.styleParaFmt(style.next, null).numId;
-        setParaProps(second, { style: style.next === this.styles.defaultPara ? null : style.next });
+      // Headings and titles continue with the normal style even when w:next is missing.
+      const heading = style && (this.styles.styleParaFmt(style.id, null).outlineLvl != null || /^(title|subtitle)$/i.test(style.name));
+      const next = style?.next ?? (heading ? this.styles.defaultPara ?? undefined : undefined);
+      if (atEnd && style && next && next !== style.id) {
+        const nextNum = this.styles.styleParaFmt(next, null).numId;
+        setParaProps(second, { style: next === this.styles.defaultPara ? null : next });
         if (!nextNum && f.numId && !path(p, 'w:pPr', 'w:numPr')) removeChild(child(second, 'w:pPr'), 'w:numPr');
       }
       if (atEnd) path(second, 'w:pPr', 'w:pageBreakBefore')?.remove();
@@ -807,6 +810,85 @@ export class DocxDocument {
     });
   }
 
+  /** Vertical alignment of the cells that contain paragraphs `pis` (w:tcPr/w:vAlign). */
+  setCellVAlign(pis: number[], v: 'top' | 'center' | 'bottom') {
+    const cells = [...new Set(pis.map((i) => this.cellOf(i)?.tc).filter((c): c is Element => !!c))];
+    if (!cells.length) return;
+    this.transact('셀 세로 정렬', [], () => {
+      for (const tc of cells) {
+        let tcPr = child(tc, 'w:tcPr');
+        if (!tcPr) { tcPr = create(this.xml, 'w:tcPr'); tc.insertBefore(tcPr, tc.firstChild); }
+        if (v === 'top') removeChild(tcPr, 'w:vAlign');
+        else setAttr(ensureOrdered(tcPr, 'w:vAlign', TCPR_ORDER), 'w:val', v);
+      }
+    });
+  }
+
+  cellPrXml(pi: number): string {
+    const pr = path(this.cellOf(pi)?.tc, 'w:tcPr');
+    return pr ? new XMLSerializer().serializeToString(pr) : '';
+  }
+
+  cellVAlign(pi: number): 'top' | 'center' | 'bottom' | null {
+    const tc = this.cellOf(pi)?.tc;
+    if (!tc) return null;
+    const v = wa(path(tc, 'w:tcPr', 'w:vAlign'), 'val');
+    return v === 'center' || v === 'bottom' ? v : 'top';
+  }
+
+  /** Grid column widths (twips) of a table. */
+  columnWidths(tbl: Element): number[] {
+    return children(child(tbl, 'w:tblGrid'), 'w:gridCol').map((g) => wnum(g, 'w') ?? 0);
+  }
+
+  /** Set grid column widths (twips): updates w:gridCol, every cell's w:tcW and a fixed table width. */
+  setColumnWidths(tbl: Element, widths: number[]) {
+    this.transact('칸 너비', [], () => {
+      const ws = widths.map((w) => Math.max(120, Math.round(w)));
+      let grid = child(tbl, 'w:tblGrid');
+      if (!grid) { grid = create(this.xml, 'w:tblGrid'); child(tbl, 'w:tblPr')!.after(grid); }
+      for (const g of children(grid, 'w:gridCol')) g.remove();
+      for (const w of ws) grid.appendChild(create(this.xml, 'w:gridCol', { 'w:w': w }));
+      for (const tr of children(tbl, 'w:tr')) {
+        let col = wnum(path(tr, 'w:trPr', 'w:gridBefore'), 'val') ?? 0;
+        for (const tc of children(tr, 'w:tc')) {
+          let tcPr = child(tc, 'w:tcPr');
+          if (!tcPr) { tcPr = create(this.xml, 'w:tcPr'); tc.insertBefore(tcPr, tc.firstChild); }
+          const span = wnum(child(tcPr, 'w:gridSpan'), 'val') ?? 1;
+          const w = ws.slice(col, col + span).reduce((a, b) => a + b, 0);
+          const tcW = ensureOrdered(tcPr, 'w:tcW', TCPR_ORDER);
+          setAttr(tcW, 'w:w', w);
+          setAttr(tcW, 'w:type', 'dxa');
+          col += span;
+        }
+      }
+      const tblPr = child(tbl, 'w:tblPr') ?? (() => { const e = create(this.xml, 'w:tblPr'); tbl.insertBefore(e, tbl.firstChild); return e; })();
+      const tblW = ensureOrdered(tblPr, 'w:tblW', TBLPR_ORDER);
+      setAttr(tblW, 'w:w', ws.reduce((a, b) => a + b, 0));
+      setAttr(tblW, 'w:type', 'dxa');
+      // Dragged widths are exact: stop Word from autofitting them back.
+      setAttr(ensureOrdered(tblPr, 'w:tblLayout', TBLPR_ORDER), 'w:type', 'fixed');
+    });
+  }
+
+  /** Minimum height of row `row` (twips; null clears it). */
+  setRowHeight(tbl: Element, row: number, twips: number | null) {
+    const tr = children(tbl, 'w:tr')[row];
+    if (!tr) return;
+    this.transact('줄 높이', [], () => {
+      let trPr = child(tr, 'w:trPr');
+      if (twips == null) { removeChild(trPr, 'w:trHeight'); return; }
+      if (!trPr) {
+        trPr = create(this.xml, 'w:trPr');
+        const ex = child(tr, 'w:tblPrEx');
+        tr.insertBefore(trPr, ex ? ex.nextSibling : tr.firstChild);
+      }
+      const h = ensureOrdered(trPr, 'w:trHeight', TRPR_ORDER);
+      setAttr(h, 'w:val', Math.max(60, Math.round(twips)));
+      setAttr(h, 'w:hRule', 'atLeast');
+    });
+  }
+
   private deleteTable(tbl: Element, finish: (f: Element | null) => Pos): Pos {
     let next = tbl.nextElementSibling;
     if (!next || !is(next, 'w:p')) {
@@ -919,6 +1001,15 @@ export class DocxDocument {
     const core = this.pkg.getXml('docProps/core.xml');
     const get = (n: string) => core?.getElementsByTagNameNS('*', n)[0]?.textContent ?? '';
     return { title: get('title'), creator: get('creator'), modified: get('modified'), created: get('created') };
+  }
+
+  /** Text of a comment (word/comments.xml), for tooltips. */
+  commentText(id: string): string {
+    const rel = this.pkg.rels(this.docPath).find((r) => r.type.endsWith('/comments'));
+    const doc = rel ? this.pkg.getXml(rel.target) : null;
+    const c = doc ? children(doc.documentElement, 'w:comment').find((x) => wa(x, 'id') === id) : null;
+    if (!c) return '메모';
+    return `${wa(c, 'author') ?? ''}: ${children(c, 'w:p').map((p) => paraText(p)).join('\n')}`.trim();
   }
 
   /** Images referenced by a part (rels of type image), for preloading. */

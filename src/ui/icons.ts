@@ -26,6 +26,9 @@ export const ICONS: Record<string, string> = {
   ac: S('<path d="M4 6h16M7 10h10M4 14h16M7 18h10"/>'),
   ar: S('<path d="M4 6h16M10 10h10M4 14h16M10 18h10"/>'),
   aj: S('<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>'),
+  vtop: S('<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M7 7h10M7 10.5h10" stroke="#2b6fd6" stroke-width="2"/>'),
+  vmid: S('<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M7 10.25h10M7 13.75h10" stroke="#2b6fd6" stroke-width="2"/>'),
+  vbot: S('<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M7 13.5h10M7 17h10" stroke="#2b6fd6" stroke-width="2"/>'),
   highlight: S('<path d="m14 4 6 6-8 8H6v-6z" fill="#fff"/><path d="m10 8 6 6"/>'),
 };
 

@@ -18,6 +18,17 @@ const debugSave: Plugin = {
         res.end('ok');
       });
     });
+    // Results of the in-browser self test (/?selftest).
+    server.middlewares.use('/__debug/selftest', (req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        const dir = join(process.cwd(), 'tests/out');
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, 'selftest.json'), Buffer.concat(chunks));
+        res.end('ok');
+      });
+    });
   },
 };
 
