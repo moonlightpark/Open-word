@@ -64,6 +64,8 @@
         <div class="md-item" data-cmd="view:toggle-marks"><span class="md-check"></span><span class="md-label">편집 기호 표시</span><span class="md-shortcut">Ctrl+Shift+8</span></div>
         <div class="md-item" data-cmd="view:gridlines"><span class="md-check"></span><span class="md-label">표 눈금선</span></div>
         <div class="md-sep"></div>
+        <div class="md-item" data-cmd="hf:edit-header"><span class="md-label">머리글 및 바닥글</span></div>
+        <div class="md-sep"></div>
         <div class="md-item has-sub"><span class="md-label">확대/축소</span><span class="md-arrow">▸</span>
           <div class="menu-dropdown">
             <div class="md-item" data-cmd="view:zoom-in"><span class="md-label">확대</span></div>
@@ -88,6 +90,31 @@
         <div class="md-sep"></div>
         <div class="md-item" data-cmd="insert:date"><span class="md-label">날짜 및 시간…</span></div>
         <div class="md-item" data-cmd="insert:symbol"><span class="md-label">기호…</span></div>
+        <div class="md-item" data-cmd="insert:emoji"><span class="md-label">이모지…</span><span class="md-shortcut">Ctrl+Alt+E</span></div>
+        <div class="md-sep"></div>
+        <div class="md-item has-sub"><span class="md-label">머리글</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown">
+            <div class="md-item" data-cmd="hf:edit-header"><span class="md-label">머리글 편집</span></div>
+            <div class="md-item" data-cmd="hf:remove-header"><span class="md-label">머리글 삭제</span></div>
+          </div>
+        </div>
+        <div class="md-item has-sub"><span class="md-label">바닥글</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown">
+            <div class="md-item" data-cmd="hf:edit-footer"><span class="md-label">바닥글 편집</span></div>
+            <div class="md-item" data-cmd="hf:remove-footer"><span class="md-label">바닥글 삭제</span></div>
+          </div>
+        </div>
+        <div class="md-item has-sub"><span class="md-label">페이지 번호</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown">
+            <div class="md-item" data-cmd="hf:page-number-header-left"><span class="md-label">페이지 위쪽 - 왼쪽</span></div>
+            <div class="md-item" data-cmd="hf:page-number-header-center"><span class="md-label">페이지 위쪽 - 가운데</span></div>
+            <div class="md-item" data-cmd="hf:page-number-header-right"><span class="md-label">페이지 위쪽 - 오른쪽</span></div>
+            <div class="md-sep"></div>
+            <div class="md-item" data-cmd="hf:page-number-footer-left"><span class="md-label">페이지 아래쪽 - 왼쪽</span></div>
+            <div class="md-item" data-cmd="hf:page-number-footer-center"><span class="md-label">페이지 아래쪽 - 가운데</span></div>
+            <div class="md-item" data-cmd="hf:page-number-footer-right"><span class="md-label">페이지 아래쪽 - 오른쪽</span></div>
+          </div>
+        </div>
         <div class="md-sep"></div>
         <div class="md-item" data-cmd="insert:table"><span class="md-label">표…</span></div>
         <div class="md-item has-sub"><span class="md-label">그림</span><span class="md-arrow">▸</span>
@@ -208,6 +235,7 @@
       <button class="rb-tab" data-tab="review">검토</button>
       <button class="rb-tab" data-tab="view">보기</button>
       <button class="rb-tab rb-contextual" data-tab="table" hidden>표 레이아웃</button>
+      <button class="rb-tab rb-contextual hf-tab" data-tab="hf" hidden>머리글 및 바닥글</button>
       <span class="rb-spacer"></span>
       <button class="rb-collapse" data-cmd="view:toggle-ribbon" title="리본 접기/펴기 (Ctrl+Alt+R)">⌃</button>
     </div>
@@ -320,8 +348,17 @@
           <div class="rb-row">
             <button class="rb-big" data-cmd="insert:date" title="날짜 및 시간"><span class="tb-icon" data-icon="date"></span><span>날짜 및<br>시간</span></button>
             <button class="rb-big" id="tb-symbol" data-cmd="insert:symbol" title="기호"><span class="tb-icon" data-icon="symbol"></span><span>기호 ▾</span></button>
+            <button class="rb-big" id="tb-emoji" data-cmd="insert:emoji" title="이모지 (Ctrl+Alt+E)"><span class="tb-icon emoji-icon">😀</span><span>이모지 ▾</span></button>
           </div>
           <div class="rb-label">텍스트</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" id="tb-header" data-cmd="hf:header-menu" title="머리글"><span class="tb-icon" data-icon="header"></span><span>머리글 ▾</span></button>
+            <button class="rb-big" id="tb-footer" data-cmd="hf:footer-menu" title="바닥글"><span class="tb-icon" data-icon="footer"></span><span>바닥글 ▾</span></button>
+            <button class="rb-big" id="tb-pagenum" data-cmd="hf:page-number-menu" title="페이지 번호"><span class="tb-icon" data-icon="pagenum"></span><span>페이지<br>번호 ▾</span></button>
+          </div>
+          <div class="rb-label">머리글 및 바닥글</div>
         </div>
       </div>
       <!-- 레이아웃 -->
@@ -433,6 +470,41 @@
             <span class="rb-note">열 너비 · 행 높이는<br>표 테두리선을 끌어서 조절</span>
           </div>
           <div class="rb-label">표</div>
+        </div>
+      </div>
+      <!-- 머리글 및 바닥글 (머리글/바닥글을 편집할 때) -->
+      <div class="rb-panel" data-panel="hf">
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" data-cmd="hf:edit-header" title="머리글로 이동"><span class="tb-icon" data-icon="header"></span><span>머리글</span></button>
+            <button class="rb-big" data-cmd="hf:edit-footer" title="바닥글로 이동"><span class="tb-icon" data-icon="footer"></span><span>바닥글</span></button>
+            <button class="rb-big" id="tb-pagenum2" data-cmd="hf:page-number-menu" title="페이지 번호"><span class="tb-icon" data-icon="pagenum"></span><span>페이지<br>번호 ▾</span></button>
+          </div>
+          <div class="rb-label">머리글 및 바닥글</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" data-cmd="hf:insert-page" title="현재 위치에 페이지 번호 필드"><span class="tb-icon" data-icon="pagenum"></span><span>페이지<br>번호 필드</span></button>
+            <button class="rb-big" data-cmd="hf:insert-pages" title="현재 위치에 전체 페이지 수 필드"><span class="tb-icon" data-icon="count"></span><span>전체<br>페이지 수</span></button>
+            <button class="rb-big" data-cmd="insert:date" title="날짜 및 시간"><span class="tb-icon" data-icon="date"></span><span>날짜 및<br>시간</span></button>
+            <button class="rb-big" data-cmd="insert:emoji" title="이모지"><span class="tb-icon emoji-icon">😀</span><span>이모지</span></button>
+          </div>
+          <div class="rb-label">삽입</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-col">
+            <label class="rb-check"><input type="checkbox" data-check="hf:first-different"> 첫 페이지를 다르게 지정</label>
+            <label class="rb-check"><input type="checkbox" data-check="hf:odd-even"> 홀수/짝수 페이지를 다르게 지정</label>
+            <button class="rb-small" data-cmd="hf:remove-header"><span class="tb-icon sm" data-icon="reject"></span>머리글 삭제</button>
+            <button class="rb-small" data-cmd="hf:remove-footer"><span class="tb-icon sm" data-icon="reject"></span>바닥글 삭제</button>
+          </div>
+          <div class="rb-label">옵션</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big hf-close" data-cmd="hf:close" title="머리글 및 바닥글 닫기 (Esc)"><span class="tb-icon" data-icon="reject"></span><span>머리글 및<br>바닥글 닫기</span></button>
+          </div>
+          <div class="rb-label">닫기</div>
         </div>
       </div>
     </div>

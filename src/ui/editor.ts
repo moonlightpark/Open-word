@@ -3,7 +3,7 @@
 // structural keys (Enter, Tab) and every formatting command go through the engine, after which
 // the affected paragraphs are re-rendered and the selection is restored in model coordinates.
 import { DocxDocument, Pos, Range, comparePos, normRange } from '../engine/document';
-import { commitDom, domToPos, isPara, paraElOf, posToDom } from '../engine/edit';
+import { commitContainer, commitDom, domToPos, isPara, measure, paraElOf, posToDom } from '../engine/edit';
 import { RunProps, setRunProps } from '../engine/model';
 import { ImageCache, Registry, newRegistry, renderBlocks, renderHeaderFooter, renderParagraph, runCss } from '../engine/render';
 import { create, is } from '../engine/xml';
@@ -14,7 +14,10 @@ export interface EditorHooks {
   selectionChanged: () => void;
   layoutChanged: () => void;
   status: (msg: string) => void;
+  hfChanged?: () => void;
 }
+
+export interface HFEdit { kind: 'header' | 'footer'; part: string; page: number; el: HTMLElement; reg: Registry; pending: boolean }
 
 export interface BlockBox { el: HTMLElement; y: number; h: number; mt: number; page: number; endPage: number }
 
@@ -236,6 +239,9 @@ export class DocEditor {
 
   private buildFrames(g: ReturnType<DocEditor['geometry']>) {
     const doc = this.doc;
+    // The header/footer being edited stays in place while the rest of the frames are rebuilt.
+    const editing = this.hf?.el;
+    editing?.remove();
     this.frames.innerHTML = '';
     for (let i = 0; i < this.pages; i++) {
       const f = document.createElement('div');
@@ -264,6 +270,153 @@ export class DocEditor {
       this.frames.appendChild(f);
     }
     this.host.style.height = this.pages * (g.H + this.gapPt) - this.gapPt + 'pt';
+    if (editing && this.hf) {
+      const f = this.frames.children[Math.min(this.hf.page, this.pages) - 1] as HTMLElement | undefined;
+      f?.querySelector(this.hf.kind === 'header' ? '.page-header' : '.page-footer')?.remove();
+      f?.appendChild(editing);
+    }
+  }
+
+  // ---------------------------------------------------------------- header / footer editing
+
+  hf: HFEdit | null = null;
+
+  /** Start editing the header or footer of page `page` (1-based), creating it if needed. */
+  enterHF(kind: 'header' | 'footer', page: number) {
+    const doc = this.doc;
+    if (this.hf) this.exitHF();
+    this.commit();
+    const part = doc.openHeaderFooter(kind, page);
+    this.paginate();
+    const g = this.geometry();
+    const el = document.createElement('div');
+    el.className = (kind === 'header' ? 'page-header' : 'page-footer') + ' hf-editing';
+    el.contentEditable = 'true';
+    el.spellcheck = false;
+    el.dataset.label = (kind === 'header' ? '머리글' : '바닥글') + ({ first: ' - 첫 페이지', even: ' - 짝수 페이지', default: doc.hfOptions().evenOdd ? ' - 홀수 페이지' : '' } as Record<string, string>)[doc.hfType(page)];
+    Object.assign(el.style, { left: g.left + 'pt', width: g.CW + 'pt' });
+    if (kind === 'header') el.style.top = g.ps.header / 20 + 'pt'; else el.style.bottom = g.ps.footer / 20 + 'pt';
+    this.hf = { kind, part, page, el, reg: newRegistry(), pending: false };
+    this.renderHF();
+    el.addEventListener('input', () => { if (this.hf) this.hf.pending = true; });
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.exitHF(); }
+      if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '\t'); }
+    });
+    el.addEventListener('beforeinput', (e) => { if (e.inputType.startsWith('format')) e.preventDefault(); });
+    this.host.classList.add('hf-mode');
+    this.buildFrames(g);
+    const last = el.querySelectorAll('p.w-p');
+    const p = last[last.length - 1] as HTMLElement | undefined;
+    el.focus({ preventScroll: true });
+    if (p) { const [n, o] = posToDom(p, Number.MAX_SAFE_INTEGER); window.getSelection()!.setBaseAndExtent(n, o, n, o); }
+    (this.frames.children[page - 1] as HTMLElement | undefined)?.scrollIntoView({ block: kind === 'header' ? 'start' : 'end' });
+    this.hooks.hfChanged?.();
+  }
+
+  private renderHF() {
+    const hf = this.hf!;
+    const root = this.doc.pkg.getXml(hf.part)!.documentElement;
+    hf.el.innerHTML = '';
+    hf.reg = newRegistry();
+    renderBlocks(root, { doc: this.doc, images: this.hooks.images(), part: hf.part, reg: hf.reg, editable: true, page: hf.page, pages: this.pages }, hf.el);
+    hf.pending = false;
+  }
+
+  /** Write the edited header/footer to its part. */
+  commitHF() {
+    const hf = this.hf;
+    if (!hf || !hf.pending) return;
+    hf.pending = false;
+    const root = this.doc.pkg.getXml(hf.part)!.documentElement;
+    let pairs: [HTMLElement, Element][] = [];
+    this.doc.transact(hf.kind === 'header' ? '머리글 편집' : '바닥글 편집', [hf.part], () => { ({ pairs } = commitContainer(hf.el, root, this.doc, hf.reg)); });
+    for (const [el, x] of pairs) { hf.reg.dom.set(el, x); hf.reg.sig.set(el, el.innerHTML); }
+  }
+
+  exitHF() {
+    if (!this.hf) return;
+    this.commitHF();
+    this.hf = null;
+    this.host.classList.remove('hf-mode');
+    this.paginate();
+    this.focus();
+    this.hooks.hfChanged?.();
+  }
+
+  /** Selected paragraph segments inside the header/footer being edited. */
+  private hfSegments(): { p: Element; s: number; e: number; el: HTMLElement }[] {
+    const hf = this.hf!;
+    const sel = window.getSelection();
+    if (!sel?.rangeCount || !hf.el.contains(sel.anchorNode)) return [];
+    const r = sel.getRangeAt(0);
+    const out: { p: Element; s: number; e: number; el: HTMLElement }[] = [];
+    for (const pel of Array.from(hf.el.querySelectorAll<HTMLElement>('p.w-p'))) {
+      if (!r.intersectsNode(pel)) continue;
+      const x = hf.reg.dom.get(pel);
+      if (!x) continue;
+      const s = pel.contains(r.startContainer) ? measure(pel, r.startContainer, r.startOffset) : 0;
+      const e = pel.contains(r.endContainer) ? measure(pel, r.endContainer, r.endOffset) : this.doc.lengthOf(x);
+      out.push({ p: x, s, e, el: pel });
+    }
+    return out;
+  }
+
+  /** Character or paragraph formatting inside the header/footer (whole paragraph when nothing is selected). */
+  hfFormat(op: { run?: RunProps; jc?: string }) {
+    const hf = this.hf;
+    if (!hf) return;
+    this.commitHF();
+    const segs = this.hfSegments();
+    if (!segs.length) return;
+    const idx = Array.from(hf.el.querySelectorAll('p.w-p')).indexOf(segs[0].el);
+    const keep = { i: idx, s: segs[0].s, e: segs[segs.length - 1].e, last: Array.from(hf.el.querySelectorAll('p.w-p')).indexOf(segs[segs.length - 1].el) };
+    this.doc.formatSegments(hf.part, segs.map((x) => ({ p: x.p, s: x.s, e: x.e === x.s && op.run ? -1 : x.e })), op);
+    this.renderHF();
+    const ps = hf.el.querySelectorAll<HTMLElement>('p.w-p');
+    const a = ps[keep.i], b = ps[keep.last];
+    if (a && b) { const [an, ao] = posToDom(a, keep.s); const [bn, bo] = posToDom(b, keep.e); window.getSelection()!.setBaseAndExtent(an, ao, bn, bo); }
+  }
+
+  /** Character formatting of the run at the caret inside the header/footer. */
+  hfCaret(): { p: Element; rPr: Element | null } | null {
+    const hf = this.hf;
+    const sel = window.getSelection();
+    if (!hf || !sel?.anchorNode || !hf.el.contains(sel.anchorNode)) return null;
+    const node = sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode as HTMLElement;
+    const pel = node?.closest('p.w-p') as HTMLElement | null;
+    const p = pel ? hf.reg.dom.get(pel) : null;
+    if (!p) return null;
+    const span = node?.closest('[data-r]') as HTMLElement | null;
+    return { p, rPr: span ? hf.reg.runs[Number(span.dataset.r)] ?? null : null };
+  }
+
+  /** Insert a PAGE / NUMPAGES field at the caret in the header/footer. */
+  hfInsertField(kw: 'PAGE' | 'NUMPAGES') {
+    const hf = this.hf;
+    const sel = window.getSelection();
+    if (!hf || !sel?.rangeCount || !hf.el.contains(sel.anchorNode)) return;
+    const xml = this.doc.pkg.getXml(hf.part)!;
+    const fld = xml.createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:fldSimple');
+    fld.setAttributeNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:instr', ` ${kw} `);
+    const r = xml.createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:r');
+    const t = xml.createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:t');
+    t.textContent = '1';
+    r.appendChild(t);
+    fld.appendChild(r);
+    const span = document.createElement('span');
+    span.className = 'w-fld';
+    span.contentEditable = 'false';
+    span.dataset.a = String(hf.reg.atoms.push([fld]) - 1);
+    span.textContent = String(kw === 'PAGE' ? hf.page : this.pages);
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+    range.insertNode(span);
+    range.setStartAfter(span);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    hf.pending = true;
   }
 
   setZoom(z: number) {
@@ -487,6 +640,21 @@ export class DocEditor {
     root.addEventListener('keydown', (e) => this.onKeyDown(e));
     root.addEventListener('mousedown', (e) => this.onMouseDown(e));
     root.addEventListener('mousemove', (e) => this.onHover(e));
+    // Word: double-click the top or bottom margin of a page to edit its header or footer.
+    this.host.addEventListener('dblclick', (e) => {
+      const doc = this.hooks.doc();
+      if (!doc) return;
+      const t = e.target as HTMLElement;
+      if (this.hf && (this.hf.el.contains(t))) return;
+      const page = t.closest('.page') as HTMLElement | null;
+      if (!page) { if (this.hf && this.root.contains(t)) this.exitHF(); return; }
+      const g = this.geometry();
+      const r = page.getBoundingClientRect();
+      const y = (e.clientY - r.top) / this.zoom / (4 / 3); // pt from the page top
+      if (y < g.top) this.enterHF('header', Array.from(this.frames.children).indexOf(page) + 1);
+      else if (y > g.H - g.bottom) this.enterHF('footer', Array.from(this.frames.children).indexOf(page) + 1);
+    });
+    this.root.addEventListener('dblclick', () => { if (this.hf) this.exitHF(); });
     root.addEventListener('click', (e) => {
       const a = (e.target as HTMLElement).closest('a.w-hyperlink') as HTMLElement | null;
       if (a?.dataset.href && (e.ctrlKey || e.metaKey)) window.open(a.dataset.href, '_blank');

@@ -447,3 +447,87 @@ describe('Word-style menu commands', () => {
     expect([f.ascii, f.ea, f.dstrike, f.smallCaps, f.strike]).toEqual(['Georgia', '바탕', true, true, undefined]);
   });
 });
+
+describe('headers and footers', () => {
+  it('creates a header and footer in a document that has none, and undo removes them', async () => {
+    const doc = await DocxDocument.load(new Uint8Array(readFileSync(join(process.cwd(), 'public/blank.docx'))));
+    expect(doc.headerFooter(1)).toEqual({ header: null, footer: null });
+    const parts = doc.pkg.partNames().length;
+    const h = doc.openHeaderFooter('header', 1);
+    expect(doc.headerFooter(1).header).toBe(h);
+    expect(doc.pkg.getXml(h)!.documentElement.localName).toBe('hdr');
+    doc.insertPageNumber('footer', 'center', true);
+    const f = doc.headerFooter(1).footer!;
+    expect(renderHeaderFooter(doc, new ImageCache(doc), f, 3, 7).textContent).toBe('3 / 7');
+    const re = await reload(doc);
+    expect(re.headerFooter(2)).toEqual({ header: h, footer: f });
+    const ct = new XMLSerializer().serializeToString(re.pkg.getXml('[Content_Types].xml')!);
+    expect(ct).toContain(`PartName="/${h}" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"`);
+    const sect = new XMLSerializer().serializeToString(re.body.getElementsByTagNameNS(W, 'sectPr')[0]);
+    expect(sect.indexOf('headerReference')).toBeLessThan(sect.indexOf('footerReference'));
+    expect(sect.indexOf('footerReference')).toBeLessThan(sect.indexOf('pgSz'));
+    doc.undo();
+    doc.undo();
+    expect(doc.headerFooter(1)).toEqual({ header: null, footer: null });
+    expect(doc.pkg.partNames().length).toBe(parts);
+  });
+
+  it('edits header text through the DOM and keeps fields', async () => {
+    const doc = await load();
+    const part = doc.headerFooter(3).header!;
+    const host = document.createElement('div');
+    const reg = newRegistry();
+    renderBlocks(doc.pkg.getXml(part)!.documentElement, { doc, images: new ImageCache(doc), part, reg, editable: true, page: 3, pages: 9 }, host);
+    const span = host.querySelector('span[data-r]')!;
+    span.textContent = '바뀐 머리글 ' + span.textContent;
+    host.insertAdjacentHTML('beforeend', '<p class="w-p">둘째 줄</p>');
+    const { commitContainer } = await import('../src/engine/edit');
+    doc.transact('머리글 편집', [part], () => commitContainer(host, doc.pkg.getXml(part)!.documentElement, doc, reg));
+    const text = renderHeaderFooter(doc, new ImageCache(doc), part, 3, 9).textContent;
+    expect(text).toContain('바뀐 머리글 Oword 기능 점검');
+    expect(text).toContain('둘째 줄');
+    // The new paragraph inherits the header paragraph's alignment.
+    const ps = doc.pkg.getXml(part)!.documentElement.getElementsByTagNameNS(W, 'p');
+    expect(doc.paraFmt(ps[1]).jc).toBe('right');
+    doc.formatSegments(part, [{ p: ps[1], s: 0, e: -1 }], { run: { b: true }, jc: 'center' });
+    expect(doc.paraFmt(ps[1]).jc).toBe('center');
+    expect(doc.runFmt(ps[1], doc.items(ps[1])[0].rPr).b).toBe(true);
+    const re = await reload(doc);
+    expect(renderHeaderFooter(re, new ImageCache(re), part, 3, 9).textContent).toContain('둘째 줄');
+    // Footer fields still work after an edit elsewhere.
+    expect(renderHeaderFooter(re, new ImageCache(re), re.headerFooter(4).footer!, 4, 9).textContent).toBe('쪽 4 / 9');
+  });
+
+  it('toggles first-page / odd-even options and removes a header', async () => {
+    const doc = await load();
+    expect(doc.hfOptions()).toEqual({ titlePg: true, evenOdd: true });
+    doc.setHFOptions({ titlePg: false, evenOdd: false });
+    expect(doc.hfOptions()).toEqual({ titlePg: false, evenOdd: false });
+    expect([doc.hfType(1), doc.hfType(2)]).toEqual(['default', 'default']);
+    doc.setHFOptions({ evenOdd: true });
+    expect(doc.hfType(2)).toBe('even');
+    const settings = new XMLSerializer().serializeToString(doc.settings!);
+    expect(settings).toContain('evenAndOddHeaders');
+    doc.removeHeaderFooter('header', 'even');
+    expect(doc.headerFooter(2).header).toBeNull();
+    expect(doc.headerFooter(3).header).not.toBeNull();
+    const re = await reload(doc);
+    expect(re.headerFooter(2).header).toBeNull();
+    doc.undo();
+    expect(doc.headerFooter(2).header).not.toBeNull();
+  });
+
+  it('inserts emoji (surrogate pairs) and keeps offsets consistent', async () => {
+    const doc = await load();
+    const pi = find(doc, '왼쪽 정렬 문단');
+    const end = doc.insertText({ pi, off: 2 }, '😀👍🏽');
+    expect(end.off).toBe(2 + '😀👍🏽'.length);
+    const { root } = render(doc);
+    const p = paraEl(root, pi);
+    for (let off = 0; off <= doc.lengthOf(doc.para(pi)!); off++) {
+      const [n, o] = posToDom(p, off);
+      expect(measure(p, n, o)).toBe(off);
+    }
+    expect((await reload(doc)).textOf((await reload(doc)).para(pi)!).startsWith('왼쪽😀👍🏽')).toBe(true);
+  });
+});

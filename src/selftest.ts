@@ -556,6 +556,106 @@ export async function runSelfTest(app: App) {
     run('view:gridlines');
   });
 
+  // ------------------------------------------------------------------ headers, footers, emoji
+  const dblMargin = (page: number, where: 'top' | 'bottom') => {
+    const f = ed.frames.children[page - 1] as HTMLElement;
+    f.scrollIntoView({ block: 'center' });
+    const r = f.getBoundingClientRect();
+    const y = where === 'top' ? r.top + 20 * ed.zoom : r.bottom - 20 * ed.zoom;
+    f.dispatchEvent(new MouseEvent('dblclick', { clientX: r.left + r.width / 2, clientY: y, bubbles: true }));
+  };
+  await check('머리글: 여백 두 번 클릭 → 편집 → 입력·Enter·굵게 → 닫기', async () => {
+    dblMargin(3, 'top');
+    const hf = ed.hf!;
+    expect(hf && hf.kind === 'header' && hf.page === 3, '머리글 편집 모드가 아님');
+    expect(!document.querySelector<HTMLElement>('.rb-tab[data-tab="hf"]')!.hidden, '머리글 및 바닥글 탭 없음');
+    expect(!app.cmd.enabled('format:bullet') && app.cmd.enabled('format:bold'), '명령 제한');
+    type(' (수정)');
+    document.execCommand('insertParagraph');
+    type('둘째 줄');
+    const p2 = hf.el.querySelectorAll('p.w-p')[1] as HTMLElement;
+    window.getSelection()!.selectAllChildren(p2);
+    run('format:bold');
+    run('format:align-center');
+    run('hf:close');
+    expect(!ed.hf, '닫히지 않음');
+    const part = doc().headerFooter(3).header!;
+    const ps = Array.from(doc().pkg.getXml(part)!.documentElement.getElementsByTagNameNS(W, 'p'));
+    eq(ps.map((x) => doc().textOf(x)), ['Oword 기능 점검 — 홀수 쪽 머리글 (수정)', '둘째 줄'], '머리글 내용');
+    eq([doc().paraFmt(ps[1]).jc, doc().runFmt(ps[1], doc().items(ps[1])[0].rPr).b], ['center', true], '서식');
+    const shown = (ed.frames.children[4] as HTMLElement).querySelector('.page-header')!.textContent; // page 5 is odd too
+    expect(shown!.includes('(수정)') && shown!.includes('둘째 줄'), '다른 홀수 페이지에 반영');
+    eq([doc().undoLabel()], ['맞춤'], '실행 취소 단계');
+    for (let i = 0; i < 3; i++) run('edit:undo'); // 맞춤 → 글자 모양 → 머리글 편집
+    expect(!(ed.frames.children[4] as HTMLElement).querySelector('.page-header')!.textContent!.includes('(수정)'), '실행 취소');
+  });
+  await check('바닥글: 페이지 번호 필드 넣기, Esc로 닫기', () => {
+    dblMargin(4, 'bottom');
+    expect(ed.hf?.kind === 'footer', '바닥글 모드 아님');
+    const p = ed.hf!.el.querySelector('p.w-p')!;
+    window.getSelection()!.setBaseAndExtent(p, 0, p, 0);
+    type('[');
+    run('hf:insert-page');
+    type(']');
+    ed.hf!.el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(!ed.hf, 'Esc로 닫히지 않음');
+    for (const n of [4, 6]) eq((ed.frames.children[n - 1] as HTMLElement).querySelector('.page-footer')!.textContent!.slice(0, 3), `[${n}]`, `${n}쪽 바닥글`);
+  });
+  await check('머리글/바닥글 옵션: 첫 페이지·홀짝 다르게, 삭제', () => {
+    eq(doc().hfOptions(), { titlePg: true, evenOdd: true }, '처음');
+    run('hf:odd-even');
+    expect(!doc().hfOptions().evenOdd, '홀짝 끄기');
+    expect((ed.frames.children[1] as HTMLElement).querySelector('.page-header')!.textContent!.includes('홀수'), '2쪽도 기본 머리글');
+    run('hf:first-different');
+    expect((ed.frames.children[0] as HTMLElement).querySelector('.page-header'), '1쪽에 기본 머리글');
+    run('hf:remove-footer');
+    expect(!(ed.frames.children[2] as HTMLElement).querySelector('.page-footer'), '바닥글 삭제');
+    run('edit:undo'); run('edit:undo'); run('edit:undo');
+    eq(doc().hfOptions(), { titlePg: true, evenOdd: true }, '실행 취소');
+  });
+  await check('새 문서에 머리글·페이지 번호 만들기 → 저장 → 다시 열기', async () => {
+    await open('./blank.docx');
+    caret(0, 0);
+    type('본문');
+    ed.commit();
+    run('hf:page-number-footer-right');
+    eq((ed.frames.children[0] as HTMLElement).querySelector('.page-footer')?.textContent, '1', '바닥글 페이지 번호');
+    dblMargin(1, 'top');
+    type('새 머리글');
+    run('hf:close');
+    eq((ed.frames.children[0] as HTMLElement).querySelector('.page-header')?.textContent, '새 머리글', '머리글');
+    const re = await DocxDocument.load(await doc().saveBytes());
+    const hf = re.headerFooter(1);
+    expect(hf.header && hf.footer, '저장된 머리글/바닥글');
+    eq(re.paraFmt(re.pkg.getXml(hf.footer!)!.documentElement.getElementsByTagNameNS(W, 'p')[0]).jc, 'right', '오른쪽 정렬');
+    await open('./features.docx');
+  });
+  await check('이모지 넣기 (삽입 ▸ 이모지, 최근 사용)', () => {
+    const pi = find('문서 끝.');
+    caret(pi, 0);
+    run('insert:emoji');
+    const tabs = document.querySelectorAll<HTMLElement>('.emoji-tabs button');
+    expect(tabs.length >= 7, '분류 탭');
+    Array.from(tabs).find((b) => b.title === '음식')!.click();
+    document.querySelector<HTMLElement>('.emoji-grid button')!.click(); // 🍏
+    expect(texts()[pi].startsWith('🍏'), texts()[pi]);
+    run('insert:emoji');
+    eq(document.querySelector<HTMLElement>('.emoji-tabs button')!.title, '최근', '최근 탭');
+    document.querySelector<HTMLElement>('.emoji-grid button')!.click();
+    expect(texts()[pi].startsWith('🍏🍏'), texts()[pi]);
+    const p = ed.paragraphElement(pi)!;
+    eq(ed.getRange()?.start.off, 4, '커서 위치 (서로게이트 쌍 2개)');
+    expect(getComputedStyle(p.querySelector('span[data-r]')!).fontFamily.includes('Emoji'), '이모지 글꼴');
+  });
+  await check('머리글 편집 중 이모지·날짜', () => {
+    dblMargin(3, 'top');
+    run('insert:emoji');
+    document.querySelector<HTMLElement>('.emoji-grid button')!.click();
+    run('hf:close');
+    expect((ed.frames.children[2] as HTMLElement).querySelector('.page-header')!.textContent!.includes('🍏'), '머리글에 이모지');
+    run('edit:undo');
+  });
+
   // ------------------------------------------------------------------ view, page setup, print
   await check('보기: 확대/축소, 쪽 맞춤, 문단 부호, 눈금자, 탐색 창', () => {
     run('view:zoom-100');

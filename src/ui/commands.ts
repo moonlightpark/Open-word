@@ -10,6 +10,8 @@ export class Commands {
   private map = new Map<string, Command>();
   private keys = new Map<string, string>();
   onError: (e: unknown) => void = (e) => console.error(e);
+  /** Extra availability rule applied to every command (e.g. header/footer editing mode). */
+  guard: (id: string) => boolean = () => true;
 
   register(id: string, cmd: Command | Command['run'], ...shortcuts: string[]) {
     this.map.set(id, typeof cmd === 'function' ? { run: cmd } : cmd);
@@ -17,12 +19,12 @@ export class Commands {
   }
 
   has(id: string) { return this.map.has(id); }
-  enabled(id: string) { const c = this.map.get(id); return !!c && (c.enabled?.() ?? true); }
+  enabled(id: string) { const c = this.map.get(id); return !!c && this.guard(id) && (c.enabled?.() ?? true); }
   checked(id: string) { return this.map.get(id)?.checked?.() ?? false; }
 
   async run(id: string) {
     const c = this.map.get(id);
-    if (!c || !(c.enabled?.() ?? true)) return;
+    if (!c || !this.guard(id) || !(c.enabled?.() ?? true)) return;
     try { await c.run(); } catch (e) { this.onError(e); }
   }
 

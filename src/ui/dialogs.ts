@@ -464,3 +464,60 @@ export function menuPopover(anchor: HTMLElement, items: MenuItem[]) {
   const r = anchor.getBoundingClientRect();
   contextMenu(r.left, r.bottom + 2, items);
 }
+
+// ------------------------------------------------------------------ emoji
+
+const EMOJI: [string, string][] = [
+  ['표정', '😀 😃 😄 😁 😆 😅 🤣 😂 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😗 😚 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🤐 🤨 😐 😑 😶 😏 😒 🙄 😬 😌 😔 😪 🤤 😴 😷 🤒 🤕 🤢 🤮 🥵 🥶 😵 🤯 🤠 🥳 😎 🤓 🧐 😕 😟 🙁 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 💩 🤡 👻 👽 🤖'],
+  ['사람·손', '👋 🤚 🖐️ ✋ 🖖 👌 🤌 🤏 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 👐 🤲 🤝 🙏 ✍️ 💪 🧠 👀 👁️ 👶 🧒 👦 👧 🧑 👨 👩 🧓 👴 👵 🙋 🙆 🙅 🤷 🤦 🙇 💁 👨‍💻 👩‍💻 👨‍🏫 👩‍🏫 👨‍⚕️ 👩‍⚕️ 👪'],
+  ['동물·자연', '🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🐔 🐧 🐦 🐤 🦆 🦅 🦉 🐺 🐴 🦄 🐝 🦋 🐌 🐞 🐢 🐍 🐙 🐬 🐳 🐟 🌸 🌼 🌻 🌹 🌷 🌱 🌿 🍀 🍁 🍂 🌲 🌳 🌴 🌵 🌞 🌝 🌛 ⭐ 🌟 ✨ ⚡ 🔥 🌈 ☀️ ⛅ ☁️ 🌧️ ⛄ ❄️ 💧 🌊'],
+  ['음식', '🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🥑 🥦 🥕 🌽 🌶️ 🥔 🍠 🥐 🍞 🧀 🥚 🍳 🥞 🥓 🍗 🍖 🌭 🍔 🍟 🍕 🥪 🌮 🍜 🍲 🍛 🍣 🍱 🥟 🍙 🍚 🍘 🍥 🍡 🍦 🍰 🎂 🍫 🍬 🍭 ☕ 🍵 🥤 🧋 🍺 🍷 🥂'],
+  ['활동·여행', '⚽ 🏀 🏈 ⚾ 🎾 🏐 🏓 🏸 ⛳ 🏊 🚴 🏃 🎯 🎮 🎲 🧩 🎨 🎬 🎤 🎧 🎹 🎸 🎻 🏆 🥇 🥈 🥉 🏅 🎉 🎊 🎈 🎁 🚗 🚕 🚌 🚓 🚑 🚒 🚚 🚲 🛵 🚆 🚇 ✈️ 🚀 🛸 🚢 ⛵ 🏠 🏢 🏥 🏫 🏛️ ⛪ 🗼 🗽 🏰 ⛺ 🌋 🗻 🏖️ 🌃 🗺️ 🧭'],
+  ['사물', '⌚ 📱 💻 ⌨️ 🖥️ 🖨️ 🖱️ 💾 💿 📷 📹 🎥 📞 ☎️ 📺 📻 ⏰ ⏳ 🔋 🔌 💡 🔦 🕯️ 💰 💳 💎 🔧 🔨 🛠️ ⚙️ 🔩 🧲 🔬 🔭 💊 🩺 🧪 📦 📫 ✉️ 📧 📝 ✏️ 🖊️ 📌 📍 📎 ✂️ 📁 📂 📅 📆 📊 📈 📉 📋 📚 📖 🔖 🏷️ 🔑 🔒 🔓 🛒 🎓'],
+  ['기호', '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💔 💕 💖 💯 ✅ ☑️ ✔️ ❌ ❎ ⭕ ❗ ❓ ❕ ❔ ⚠️ 🚫 ⛔ 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🟥 🟧 🟨 🟩 🟦 🟪 ⬛ ⬜ ▶️ ⏸️ ⏹️ ⏺️ ⏭️ ⏮️ 🔼 🔽 ➡️ ⬅️ ⬆️ ⬇️ ↗️ ↘️ 🔄 🆗 🆕 🆒 🆓 🔝 ♻️ ™️ ©️ ®️ #️⃣ 1️⃣ 2️⃣ 3️⃣ 🔟'],
+];
+
+const RECENT_KEY = 'oword.recentEmoji';
+
+function recentEmoji(): string[] {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]').filter((x: unknown) => typeof x === 'string').slice(0, 24); } catch { return []; }
+}
+
+export function pushRecentEmoji(e: string) {
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify([e, ...recentEmoji().filter((x) => x !== e)].slice(0, 24))); } catch { /* storage unavailable */ }
+}
+
+/** 이모지 picker with categories and recently used emoji. */
+export function emojiPopover(anchor: HTMLElement, pick: (s: string) => void) {
+  const wrap = document.createElement('div');
+  wrap.className = 'emoji-pop';
+  const tabs = document.createElement('div');
+  tabs.className = 'emoji-tabs';
+  const grid = document.createElement('div');
+  grid.className = 'emoji-grid';
+  const recents = recentEmoji();
+  const cats: [string, string[]][] = [...(recents.length ? [['최근', recents] as [string, string[]]] : []), ...EMOJI.map(([n, list]) => [n, list.split(' ')] as [string, string[]])];
+  const show = (i: number) => {
+    tabs.querySelectorAll('button').forEach((b, k) => b.classList.toggle('active', k === i));
+    grid.innerHTML = '';
+    for (const e of cats[i][1]) {
+      const b = document.createElement('button');
+      b.textContent = e;
+      b.onclick = () => { closePopover(); pushRecentEmoji(e); pick(e); };
+      grid.appendChild(b);
+    }
+  };
+  cats.forEach(([name, list], i) => {
+    const b = document.createElement('button');
+    b.textContent = list[0];
+    b.title = name;
+    b.onclick = () => show(i);
+    tabs.appendChild(b);
+  });
+  const hint = document.createElement('div');
+  hint.className = 'emoji-hint';
+  hint.textContent = /Mac/.test(navigator.platform) ? '시스템 이모지: ⌃⌘Space' : '시스템 이모지: Win + .';
+  wrap.append(tabs, grid, hint);
+  popover(anchor, wrap);
+  show(0);
+}

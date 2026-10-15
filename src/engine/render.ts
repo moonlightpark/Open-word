@@ -67,7 +67,7 @@ export interface RenderCtx {
   notes?: { n: number };
 }
 
-export const FALLBACK_FONTS = `'Apple SD Gothic Neo','Malgun Gothic','맑은 고딕','Noto Sans KR','Noto Sans CJK KR',sans-serif`;
+export const FALLBACK_FONTS = `'Apple SD Gothic Neo','Malgun Gothic','맑은 고딕','Noto Sans KR','Noto Sans CJK KR','Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif`;
 
 const FONT_ALIASES: Record<string, string> = {
   'Calibri': "'Calibri','Carlito'",

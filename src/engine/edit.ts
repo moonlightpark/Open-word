@@ -146,6 +146,22 @@ export function commitDom(root: HTMLElement, doc: DocxDocument, reg: Registry): 
   return { pairs: st.pairs, changed: st.changed };
 }
 
+/**
+ * Write an edited header/footer (or any block container such as w:hdr / w:ftr) back to `container`,
+ * which may belong to another XML part than the main document.
+ */
+export function commitContainer(host: HTMLElement, container: Element, doc: DocxDocument, reg: Registry): { pairs: [HTMLElement, Element][]; changed: number } {
+  const st: CommitState = { doc, reg, used: new Set(), pairs: [], changed: 0 };
+  const own = container.ownerDocument;
+  let blocks = buildBlocks(host, st, false);
+  if (!blocks.length || !is(blocks[blocks.length - 1], 'w:p')) blocks.push(create(own, 'w:p'));
+  blocks = blocks.map((b) => b.ownerDocument === own ? b : own.importNode(b, true) as Element);
+  st.pairs = st.pairs.map(([el, x]) => [el, x.ownerDocument === own ? x : blocks.find((b) => b.isEqualNode(x)) ?? x]);
+  for (const c of children(container)) c.remove();
+  for (const b of blocks) container.appendChild(b);
+  return { pairs: st.pairs, changed: st.changed };
+}
+
 function buildBlocks(host: HTMLElement, st: CommitState, isBody: boolean): Element[] {
   const out: Element[] = [];
   let loose: HTMLElement | null = null;
@@ -186,7 +202,12 @@ function paragraphFor(el: HTMLElement, st: CommitState): Element {
     return orig;
   }
   // Rebuilt: from its own source paragraph, or (for browser-made copies) the one it was cloned from.
-  const src = orig && is(orig, 'w:p') ? orig : st.doc.para(Number(el.dataset.pi ?? -1));
+  let src = orig && is(orig, 'w:p') ? orig : st.doc.para(Number(el.dataset.pi ?? -1));
+  // A paragraph the browser split off keeps the formatting of the one it came from.
+  for (let prev = el.previousElementSibling; !src && prev; prev = prev.previousElementSibling) {
+    const x = st.reg.dom.get(prev);
+    if (x && is(x, 'w:p')) src = x;
+  }
   const p = rebuildParagraph(el, src, st);
   if (src && st.used.has(src)) for (const a of ['paraId', 'textId']) p.removeAttributeNS(NS.w14, a);
   if (src) st.used.add(src);

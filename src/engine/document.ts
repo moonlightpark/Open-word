@@ -46,6 +46,8 @@ const BUILTIN_STYLES: Record<string, string> = {
   Quote: '<w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="29"/><w:qFormat/><w:pPr><w:spacing w:before="160"/><w:ind w:left="864" w:right="864"/><w:jc w:val="center"/></w:pPr><w:rPr><w:i/><w:iCs/><w:color w:val="404040"/></w:rPr></w:style>',
   ListParagraph: '<w:style w:type="paragraph" w:styleId="ListParagraph"><w:name w:val="List Paragraph"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="34"/><w:qFormat/><w:pPr><w:ind w:left="720"/><w:contextualSpacing/></w:pPr></w:style>',
   NoSpacing: '<w:style w:type="paragraph" w:styleId="NoSpacing"><w:name w:val="No Spacing"/><w:uiPriority w:val="1"/><w:qFormat/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:style>',
+  Header: '<w:style w:type="paragraph" w:styleId="Header"><w:name w:val="header"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/><w:pPr><w:tabs><w:tab w:val="center" w:pos="4513"/><w:tab w:val="right" w:pos="9026"/></w:tabs><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:style>',
+  Footer: '<w:style w:type="paragraph" w:styleId="Footer"><w:name w:val="footer"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/><w:pPr><w:tabs><w:tab w:val="center" w:pos="4513"/><w:tab w:val="right" w:pos="9026"/></w:tabs><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:style>',
   TableGrid: '<w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/><w:basedOn w:val="TableNormal"/><w:uiPriority w:val="39"/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:tblPr><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:left w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:right w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="auto"/></w:tblBorders></w:tblPr></w:style>',
 };
 
@@ -322,15 +324,151 @@ export class DocxDocument {
 
   /** Header/footer parts for page `n` (1-based) of the final section. */
   headerFooter(n: number): { header: string | null; footer: string | null } {
+    const type = this.hfType(n);
+    return { header: this.hfPart('header', type), footer: this.hfPart('footer', type) };
+  }
+
+  // ---------------------------------------------------------------- headers & footers
+
+  /** Page-type flags of the document: different first page, different odd/even pages. */
+  hfOptions() {
+    const t = child(child(this.body, 'w:sectPr'), 'w:titlePg');
+    return { titlePg: !!t && wa(t, 'val') !== '0' && wa(t, 'val') !== 'false', evenOdd: this.evenAndOddHeaders };
+  }
+
+  /** Which header/footer type a page uses. */
+  hfType(n: number): 'first' | 'even' | 'default' {
+    const o = this.hfOptions();
+    return o.titlePg && n === 1 ? 'first' : o.evenOdd && n % 2 === 0 ? 'even' : 'default';
+  }
+
+  /** Part path of an existing header/footer of a type, or null. */
+  hfPart(kind: 'header' | 'footer', type: 'first' | 'even' | 'default'): string | null {
     const s = child(this.body, 'w:sectPr');
-    const titlePg = !!child(s, 'w:titlePg') && wa(child(s, 'w:titlePg'), 'val') !== '0';
-    const type = titlePg && n === 1 ? 'first' : this.evenAndOddHeaders && n % 2 === 0 ? 'even' : 'default';
-    const find = (tag: string) => {
-      const ref = children(s, tag).find((r) => (wa(r, 'type') ?? 'default') === type);
-      const id = ref?.getAttributeNS(NS.r, 'id');
-      return id ? this.pkg.rel(this.docPath, id)?.target ?? null : null;
-    };
-    return { header: find('w:headerReference'), footer: find('w:footerReference') };
+    const ref = children(s, kind === 'header' ? 'w:headerReference' : 'w:footerReference').find((r) => (wa(r, 'type') ?? 'default') === type);
+    const id = ref?.getAttributeNS(NS.r, 'id');
+    return id ? this.pkg.rel(this.docPath, id)?.target ?? null : null;
+  }
+
+  hfParts(): string[] {
+    return this.pkg.rels(this.docPath).filter((r) => r.type === REL.header || r.type === REL.footer).map((r) => r.target);
+  }
+
+  /** Create a header/footer part of a type when it does not exist yet. Call inside a transaction. */
+  private ensureHF(kind: 'header' | 'footer', type: 'first' | 'even' | 'default'): string {
+    const existing = this.hfPart(kind, type);
+    if (existing) return existing;
+    const styleId = kind === 'header' ? 'Header' : 'Footer';
+    const hasStyle = this.ensureStyle(styleId);
+    const tag = kind === 'header' ? 'w:hdr' : 'w:ftr';
+    const part = this.pkg.uniqueName((n) => `word/${kind}${n}.xml`);
+    this.pkg.setXml(part, parseXml(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><${tag} ${XMLNS}><w:p>${hasStyle ? `<w:pPr><w:pStyle w:val="${styleId}"/></w:pPr>` : ''}</w:p></${tag}>`));
+    this.pkg.addOverride(part, `application/vnd.openxmlformats-officedocument.wordprocessingml.${kind}+xml`);
+    const rId = this.pkg.addRel(this.docPath, kind === 'header' ? REL.header : REL.footer, part);
+    const sect = this.sectPr();
+    const ref = create(this.xml, kind === 'header' ? 'w:headerReference' : 'w:footerReference', { 'w:type': type });
+    ref.setAttributeNS(NS.r, 'r:id', rId);
+    // References come first in w:sectPr, headers before footers.
+    const refs = children(sect).filter((c) => c.localName === 'headerReference' || c.localName === 'footerReference');
+    const after = kind === 'header' ? refs.filter((r) => r.localName === 'headerReference').at(-1) : refs.at(-1);
+    if (after) after.after(ref); else sect.insertBefore(ref, sect.firstChild);
+    return part;
+  }
+
+  hfTransactionParts(extra: string[] = []) {
+    const parts = [relsPathFor(this.docPath), '[Content_Types].xml', this.stylesPath, ...this.hfParts(), ...extra];
+    const settings = this.pkg.relOfType(this.docPath, REL.settings)?.target;
+    if (settings) parts.push(settings);
+    // The names new parts would get, so that undo also removes a created header/footer.
+    parts.push(this.pkg.uniqueName((n) => `word/header${n}.xml`), this.pkg.uniqueName((n) => `word/footer${n}.xml`));
+    return parts;
+  }
+
+  /** Header/footer part for page `n`, creating it if needed (used when the user starts editing it). */
+  openHeaderFooter(kind: 'header' | 'footer', n: number): string {
+    const type = this.hfType(n);
+    return this.hfPart(kind, type) ?? this.transact(kind === 'header' ? '머리글 만들기' : '바닥글 만들기', this.hfTransactionParts(), () => this.ensureHF(kind, type));
+  }
+
+  /** Remove a header/footer type (the part, its relationship and the reference). */
+  removeHeaderFooter(kind: 'header' | 'footer', type: 'first' | 'even' | 'default') {
+    const part = this.hfPart(kind, type);
+    if (!part) return;
+    this.transact(kind === 'header' ? '머리글 삭제' : '바닥글 삭제', this.hfTransactionParts(), () => {
+      const s = child(this.body, 'w:sectPr')!;
+      const ref = children(s, kind === 'header' ? 'w:headerReference' : 'w:footerReference').find((r) => (wa(r, 'type') ?? 'default') === type)!;
+      const id = ref.getAttributeNS(NS.r, 'id')!;
+      ref.remove();
+      if (!descendants(this.xml, kind === 'header' ? 'w:headerReference' : 'w:footerReference').some((r) => r.getAttributeNS(NS.r, 'id') === id)) {
+        this.pkg.removeRel(this.docPath, id);
+        this.pkg.removeOverride(part);
+        this.pkg.remove(part);
+      }
+    });
+  }
+
+  /** Turn "different first page" / "different odd & even pages" on or off. */
+  setHFOptions(o: { titlePg?: boolean; evenOdd?: boolean }) {
+    this.transact('머리글/바닥글 옵션', this.hfTransactionParts(), () => {
+      if (o.titlePg !== undefined) {
+        const s = this.sectPr();
+        if (o.titlePg) ensureOrdered(s, 'w:titlePg', SECTPR_ORDER).removeAttributeNS(NS.w, 'val');
+        else removeChild(s, 'w:titlePg');
+      }
+      if (o.evenOdd !== undefined) {
+        const settings = this.settings;
+        if (settings) {
+          const root = settings.documentElement;
+          if (o.evenOdd && !child(root, 'w:evenAndOddHeaders')) {
+            // CT_Settings order: evenAndOddHeaders comes after the zoom/proof/tab-stop group.
+            const el = create(settings, 'w:evenAndOddHeaders');
+            const after = ['w:defaultTabStop', 'w:autoHyphenation', 'w:consecutiveHyphenLimit', 'w:hyphenationZone', 'w:doNotHyphenateCaps', 'w:showEnvelope', 'w:summaryLength', 'w:clickAndTypeStyle', 'w:defaultTableStyle'];
+            const before = children(root).find((c) => !['writeProtection', 'view', 'zoom', 'removePersonalInformation', 'removeDateAndTime', 'doNotDisplayPageBoundaries', 'displayBackgroundShape', 'printPostScriptOverText', 'printFractionalCharacterWidth', 'printFormsData', 'embedTrueTypeFonts', 'embedSystemFonts', 'saveSubsetFonts', 'saveFormsData', 'mirrorMargins', 'alignBordersAndEdges', 'bordersDoNotSurroundHeader', 'bordersDoNotSurroundFooter', 'gutterAtTop', 'hideSpellingErrors', 'hideGrammaticalErrors', 'activeWritingStyle', 'proofState', 'formsDesign', 'attachedTemplate', 'linkStyles', 'stylePaneFormatFilter', 'stylePaneSortMethod', 'documentType', 'mailMerge', 'revisionView', 'trackRevisions', 'doNotTrackMoves', 'doNotTrackFormatting', 'documentProtection', 'autoFormatOverride', 'styleLockTheme', 'styleLockQFSet', ...after.map((a) => a.slice(2))].includes(c.localName));
+            root.insertBefore(el, before ?? null);
+          }
+          if (!o.evenOdd) removeChild(root, 'w:evenAndOddHeaders');
+        }
+      }
+    });
+  }
+
+  /** Format paragraph segments of a part (e = -1 means the whole paragraph). */
+  formatSegments(part: string, segs: { p: Element; s: number; e: number }[], op: { run?: RunProps; jc?: string }) {
+    this.transact(op.jc ? '맞춤' : '글자 모양', [part], () => {
+      for (const { p, s, e } of segs) {
+        if (op.jc) setParaProps(p, { jc: op.jc });
+        if (!op.run) continue;
+        const len = paraLength(p);
+        const [a, b] = e < 0 ? [0, len] : [s, e];
+        if (a < b) {
+          for (const it of itemsInRange(p, a, b)) for (const r of itemRuns(it)) setRunProps(ensureRPr(r), op.run);
+          mergeRuns(p);
+        }
+        if (a === 0 && b === len) setRunProps(ensureOrdered(ensurePPr(p), 'w:rPr', PPR_ORDER), op.run);
+      }
+    });
+  }
+
+  /** Append a page-number paragraph (PAGE field) to the header or footer of every page type in use. */
+  insertPageNumber(kind: 'header' | 'footer', jc: 'left' | 'center' | 'right', withTotal = false) {
+    this.transact('페이지 번호', this.hfTransactionParts(), () => {
+      const types = new Set<'first' | 'even' | 'default'>(['default']);
+      if (this.hfOptions().evenOdd) types.add('even');
+      for (const type of types) {
+        const part = this.ensureHF(kind, type);
+        const x = this.pkg.getXml(part)!;
+        const root = x.documentElement;
+        const styleId = kind === 'header' ? 'Header' : 'Footer';
+        const field = (instr: string, v: string) => `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> ${instr} </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>${v}</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>`;
+        const xml = `<w:p><w:pPr>${this.styles.style(styleId) ? `<w:pStyle w:val="${styleId}"/>` : ''}<w:jc w:val="${jc}"/></w:pPr>${field('PAGE', '1')}${withTotal ? `<w:r><w:t xml:space="preserve"> / </w:t></w:r>${field('NUMPAGES', '1')}` : ''}</w:p>`;
+        const [p] = fragment(x, xml);
+        // An empty paragraph (a fresh header) is replaced; otherwise the number goes on a new line.
+        const ps = children(root, 'w:p');
+        const last = ps[ps.length - 1];
+        if (ps.length === 1 && last && !paraText(last).trim() && !children(root).some((c) => c.localName === 'tbl')) last.replaceWith(p);
+        else root.appendChild(p);
+      }
+    });
   }
 
   // ---------------------------------------------------------------- styles & numbering setup

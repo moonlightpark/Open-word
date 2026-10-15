@@ -47,6 +47,9 @@ export const ICONS: Record<string, string> = {
   rowbelow: S('<rect x="3" y="4" width="18" height="10" rx="1" fill="#fff"/><path d="M3 9h18M9 4v10M15 4v10"/><path d="M12 16v6M9 19h6" stroke="#2b6fd6" stroke-width="2"/>'),
   colleft: S('<rect x="10" y="3" width="10" height="18" rx="1" fill="#fff"/><path d="M15 3v18M10 9h10M10 15h10"/><path d="M2 12h6M5 9v6" stroke="#2b6fd6" stroke-width="2"/>'),
   colright: S('<rect x="4" y="3" width="10" height="18" rx="1" fill="#fff"/><path d="M9 3v18M4 9h10M4 15h10"/><path d="M16 12h6M19 9v6" stroke="#2b6fd6" stroke-width="2"/>'),
+  header: S('<rect x="4" y="3" width="16" height="18" rx="1" fill="#fff"/><rect x="4" y="3" width="16" height="5" fill="#cfe0fb" stroke="#2b6fd6"/><path d="M8 12h8M8 15h8M8 18h5"/>'),
+  footer: S('<rect x="4" y="3" width="16" height="18" rx="1" fill="#fff"/><rect x="4" y="16" width="16" height="5" fill="#cfe0fb" stroke="#2b6fd6"/><path d="M8 7h8M8 10h8M8 13h5"/>'),
+  pagenum: S('<rect x="4" y="3" width="16" height="18" rx="1" fill="#fff"/><path d="M8 7h8M8 10h8"/><text x="12" y="19" font-size="7" text-anchor="middle" fill="#2b6fd6" stroke="none" font-family="sans-serif" font-weight="bold">#1</text>'),
   highlight: S('<path d="m14 4 6 6-8 8H6v-6z" fill="#fff"/><path d="m10 8 6 6"/>'),
 };
 

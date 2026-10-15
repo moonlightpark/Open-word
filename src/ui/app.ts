@@ -6,7 +6,7 @@ import { ImageCache } from '../engine/render';
 import { ParaFmt, RunFmt, styleLabel } from '../engine/styles';
 import { fontStack } from '../engine/render';
 import { Commands } from './commands';
-import { closeContextMenu, closePopover, colorPopover, contextMenu, dateDialog, dialog, fontDialog, highlightPopover, html, hyperlinkDialog, menuPopover, pageSetupDialog, paragraphDialog, symbolPopover, tablePopover, toast } from './dialogs';
+import { closeContextMenu, closePopover, colorPopover, contextMenu, dateDialog, dialog, emojiPopover, fontDialog, highlightPopover, html, hyperlinkDialog, menuPopover, pageSetupDialog, paragraphDialog, symbolPopover, tablePopover, toast } from './dialogs';
 import { DocEditor } from './editor';
 import { installIcons } from './icons';
 import { printDocument } from './print';
@@ -17,6 +17,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 /** A popover anchor: the ribbon button when it is visible, else the menu bar. */
 const anchor = (id: string) => { const e = $(id); return e && e.offsetParent ? e : $('menu-bar'); };
 
+const HF_ALLOWED = /^(file:|view:|tool:|hf:|edit:(undo|redo|cut|copy|paste|paste-text|select-all)$|format:(bold|italic|underline|strike|superscript|subscript|grow|shrink|text-color|highlight|font|clear|align-\w+)$|insert:(date|symbol|emoji)$|page:setup$)/;
 const FONTS = ['맑은 고딕', 'Apple SD Gothic Neo', '나눔고딕', '나눔명조', '굴림', '돋움', '바탕', '궁서', 'Noto Sans KR', 'Pretendard', 'Arial', 'Calibri', 'Calibri Light', 'Cambria', 'Helvetica', 'Times New Roman', 'Georgia', 'Verdana', 'Tahoma', 'Segoe UI', 'Consolas', 'Courier New'];
 const SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72];
 const ZOOMS = [0.25, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 3, 4];
@@ -49,10 +50,13 @@ export class App {
       doc: () => this.doc,
       images: () => this.images,
       selectionChanged: () => this.queueSync(),
+      hfChanged: () => this.onHFChanged(),
       layoutChanged: () => { this.syncStatus(); this.syncRulers(); },
       status: (m) => this.message(m),
     }, $('page-wrap'));
     this.cmd.onError = (e) => { console.error(e); toast('오류: ' + ((e as Error).message ?? e)); };
+    // While a header/footer is being edited only commands that make sense there are available.
+    this.cmd.guard = (id) => !this.editor.hf || HF_ALLOWED.test(id);
     this.registerCommands();
     this.bindUi();
   }
@@ -162,6 +166,8 @@ export class App {
   /** Character formatting at the caret: the pending span, the run under the caret, or the model. */
   private caretFmt(): { fmt: RunFmt; pi: number } | null {
     const doc = this.doc;
+    const hc = this.editor.hfCaret();
+    if (doc && hc) return { fmt: doc.runFmt(hc.p, hc.rPr), pi: -1 };
     const r = this.editor.getRange();
     if (!doc || !r) return null;
     const pos = normRange(r).start;
@@ -345,6 +351,7 @@ export class App {
 
   private runProps(props: RunProps, label?: string) {
     if (!this.doc) return;
+    if (this.editor.hf) { this.editor.hfFormat({ run: props }); this.queueSync(); return; }
     this.editor.applyRunProps(props, label);
     this.queueSync();
   }
@@ -413,6 +420,13 @@ export class App {
   }
 
   private async onPaste(e: ClipboardEvent) {
+    if (this.editor.hf?.el.contains(e.target as Node)) {
+      // Header/footer: plain text only.
+      e.preventDefault();
+      const t = e.clipboardData?.getData('text/plain');
+      if (t) document.execCommand('insertText', false, t.replace(/\r?\n/g, ' '));
+      return;
+    }
     if (!this.doc || !this.editor.isEditorTarget(e.target)) return;
     e.preventDefault();
     const items = Array.from(e.clipboardData?.items ?? []);
@@ -430,6 +444,7 @@ export class App {
 
   private async save(saveAs: boolean) {
     if (!this.doc) return;
+    this.editor.commitHF();
     this.editor.commit();
     const blob = await this.doc.save();
     const name = this.fileName.toLowerCase().endsWith('.docx') ? this.fileName : this.fileName.replace(/\.[^.]*$/, '') + '.docx';
@@ -507,14 +522,14 @@ export class App {
     c.register('file:save-as', { run: () => this.save(true), enabled: this.hasDoc }, 'ctrl+shift+s');
     c.register('file:print', { run: () => { ed.commit(); printDocument(ed); }, enabled: this.hasDoc }, 'ctrl+p');
     c.register('file:info', { run: () => this.infoDialog(), enabled: this.hasDoc });
-    c.register('file:about', () => { dialog('제품 정보', html(`<div style="line-height:1.7"><b>Oword</b> 0.2.0<br>DOCX 문서 편집기<br><span style="color:#5c6370;font-size:12px">Opptx(PPTX 편집기)와 같은 구조 — 문서 엔진 · 렌더러 · 명령 기반 UI · 데스크톱 셸 — 로 만든 Word 문서 편집기입니다. 이 구조는 HOP(HWP 편집기, MIT)을 참고했습니다.<br>MIT License · Copyright (c) 2026 moonlightpark<br>서드파티 라이선스: THIRD_PARTY_NOTICES.md<br>Microsoft와 관계없음. Microsoft Word는 Microsoft Corporation의 상표입니다.</span></div>`), [{ label: '확인', primary: true }]); });
+    c.register('file:about', () => { dialog('제품 정보', html(`<div style="line-height:1.7"><b>Oword</b> 0.2.1<br>DOCX 문서 편집기<br><span style="color:#5c6370;font-size:12px">Opptx(PPTX 편집기)와 같은 구조 — 문서 엔진 · 렌더러 · 명령 기반 UI · 데스크톱 셸 — 로 만든 Word 문서 편집기입니다. 이 구조는 HOP(HWP 편집기, MIT)을 참고했습니다.<br>MIT License · Copyright (c) 2026 moonlightpark<br>서드파티 라이선스: THIRD_PARTY_NOTICES.md<br>Microsoft와 관계없음. Microsoft Word는 Microsoft Corporation의 상표입니다.</span></div>`), [{ label: '확인', primary: true }]); });
     // edit
     c.register('edit:undo', {
-      run: () => { ed.commit(); const sel = d().undo() as Range | null; ed.render(); if (sel) ed.setRange(sel); this.buildStyleList(); this.queueSync(); },
+      run: () => { ed.exitHF(); ed.commit(); const sel = d().undo() as Range | null; ed.render(); if (sel) ed.setRange(sel); this.buildStyleList(); this.queueSync(); },
       enabled: () => !!this.doc && (d().canUndo() || true),
     }, 'ctrl+z');
     c.register('edit:redo', {
-      run: () => { ed.commit(); const sel = d().redo() as Range | null; ed.render(); if (sel) ed.setRange(sel); this.queueSync(); },
+      run: () => { ed.exitHF(); ed.commit(); const sel = d().redo() as Range | null; ed.render(); if (sel) ed.setRange(sel); this.queueSync(); },
       enabled: () => !!this.doc && d().canRedo(),
     }, 'ctrl+shift+z', 'ctrl+y');
     c.register('edit:cut', { run: () => { ed.focus(); this.copyToClipboard(); document.execCommand('cut'); }, enabled: () => !!this.doc && !ed.collapsed() }, 'ctrl+x');
@@ -582,7 +597,7 @@ export class App {
     });
     // format: paragraphs
     for (const [id, jc, key] of [['left', 'left', 'ctrl+l'], ['center', 'center', 'ctrl+e'], ['right', 'right', 'ctrl+r'], ['justify', 'both', 'ctrl+j']]) {
-      c.register(`format:align-${id}`, { run: () => this.para((pis) => d().applyParaProps(pis, { jc }, '정렬')), enabled: this.hasDoc }, key);
+      c.register(`format:align-${id}`, { run: () => ed.hf ? ed.hfFormat({ jc }) : this.para((pis) => d().applyParaProps(pis, { jc }, '정렬')), enabled: this.hasDoc }, key);
     }
     c.register('format:bullet', { run: () => this.para((pis) => d().toggleList(pis, 'bullet')), enabled: this.hasDoc }, 'ctrl+shift+l');
     c.register('format:numbering', { run: () => this.para((pis) => d().toggleList(pis, 'number')), enabled: this.hasDoc });
@@ -644,8 +659,62 @@ export class App {
     c.register('view:toggle-ribbon', { run: () => { this.showRibbon = !this.showRibbon; $('ribbon').classList.toggle('collapsed', !this.showRibbon); if (this.fit) this.setZoom(this.fitZoom(this.fit), this.fit); }, checked: () => this.showRibbon }, 'ctrl+alt+r');
     c.register('view:gridlines', { run: () => { this.showGridlines = !this.showGridlines; ed.root.classList.toggle('no-gridlines', !this.showGridlines); }, checked: () => this.showGridlines });
     c.register('insert:line-break', { run: () => this.structural((pos) => d().insertLineBreak(pos)), enabled: this.hasDoc });
-    c.register('insert:date', { run: () => { ed.rememberSelection(); dateDialog((t) => this.structural((pos) => d().insertText(pos, t, '날짜 및 시간'))); }, enabled: this.hasDoc });
-    c.register('insert:symbol', { run: () => { ed.rememberSelection(); symbolPopover(anchor('tb-symbol'), (ch) => this.structural((pos) => d().insertText(pos, ch, '기호'))); }, enabled: this.hasDoc });
+    c.register('insert:date', { run: () => { this.keepCaret(); dateDialog((t) => this.insertPlain(t, '날짜 및 시간')); }, enabled: this.hasDoc });
+    c.register('insert:symbol', { run: () => { this.keepCaret(); symbolPopover(anchor('tb-symbol'), (ch) => this.insertPlain(ch, '기호')); }, enabled: this.hasDoc });
+    c.register('insert:emoji', { run: () => { this.keepCaret(); emojiPopover(anchor('tb-emoji'), (ch) => this.insertPlain(ch, '이모지')); }, enabled: this.hasDoc }, 'ctrl+alt+e');
+    // Headers and footers
+    const curPage = () => Math.max(1, this.editor.caretPage());
+    c.register('hf:edit-header', { run: () => { this.editor.enterHF('header', ed.hf?.page ?? curPage()); }, enabled: this.hasDoc });
+    c.register('hf:edit-footer', { run: () => { this.editor.enterHF('footer', ed.hf?.page ?? curPage()); }, enabled: this.hasDoc });
+    c.register('hf:goto-other', { run: () => { const h = ed.hf; if (h) ed.enterHF(h.kind === 'header' ? 'footer' : 'header', h.page); }, enabled: () => !!ed.hf });
+    c.register('hf:close', { run: () => ed.exitHF(), enabled: () => !!ed.hf });
+    for (const kind of ['header', 'footer'] as const) {
+      c.register(`hf:remove-${kind}`, {
+        run: () => {
+          const page = ed.hf?.page ?? curPage();
+          ed.exitHF();
+          d().removeHeaderFooter(kind, d().hfType(page));
+          ed.paginate();
+          toast(kind === 'header' ? '머리글을 삭제했습니다' : '바닥글을 삭제했습니다');
+        },
+        enabled: () => !!this.doc && !!d().hfPart(kind, d().hfType(ed.hf?.page ?? curPage())),
+      });
+    }
+    c.register('hf:first-different', { run: () => { ed.commitHF(); d().setHFOptions({ titlePg: !d().hfOptions().titlePg }); this.reopenHF(); }, enabled: this.hasDoc, checked: () => !!this.doc && d().hfOptions().titlePg });
+    c.register('hf:odd-even', { run: () => { ed.commitHF(); d().setHFOptions({ evenOdd: !d().hfOptions().evenOdd }); this.reopenHF(); }, enabled: this.hasDoc, checked: () => !!this.doc && d().hfOptions().evenOdd });
+    c.register('hf:insert-page', { run: () => ed.hfInsertField('PAGE'), enabled: () => !!ed.hf });
+    c.register('hf:insert-pages', { run: () => ed.hfInsertField('NUMPAGES'), enabled: () => !!ed.hf });
+    for (const kind of ['header', 'footer'] as const) {
+      for (const jc of ['left', 'center', 'right'] as const) {
+        c.register(`hf:page-number-${kind}-${jc}`, {
+          run: () => { ed.exitHF(); d().insertPageNumber(kind, jc, this.pageNumberTotal); ed.paginate(); },
+          enabled: this.hasDoc,
+        });
+      }
+    }
+    c.register('hf:page-number-menu', {
+      run: () => menuPopover(anchor('tb-pagenum'), [
+        { label: '페이지 위쪽 - 왼쪽', action: () => this.cmd.run('hf:page-number-header-left') },
+        { label: '페이지 위쪽 - 가운데', action: () => this.cmd.run('hf:page-number-header-center') },
+        { label: '페이지 위쪽 - 오른쪽', action: () => this.cmd.run('hf:page-number-header-right') },
+        { sep: true },
+        { label: '페이지 아래쪽 - 왼쪽', action: () => this.cmd.run('hf:page-number-footer-left') },
+        { label: '페이지 아래쪽 - 가운데', action: () => this.cmd.run('hf:page-number-footer-center') },
+        { label: '페이지 아래쪽 - 오른쪽', action: () => this.cmd.run('hf:page-number-footer-right') },
+        { sep: true },
+        { label: (this.pageNumberTotal ? '✓ ' : '') + '"n / 전체" 형식', action: () => { this.pageNumberTotal = !this.pageNumberTotal; } },
+      ]),
+      enabled: this.hasDoc,
+    });
+    for (const kind of ['header', 'footer'] as const) {
+      c.register(`hf:${kind}-menu`, {
+        run: () => menuPopover(anchor(kind === 'header' ? 'tb-header' : 'tb-footer'), [
+          { label: kind === 'header' ? '머리글 편집' : '바닥글 편집', action: () => this.cmd.run(`hf:edit-${kind}`) },
+          { label: kind === 'header' ? '머리글 삭제' : '바닥글 삭제', disabled: !this.cmd.enabled(`hf:remove-${kind}`), action: () => this.cmd.run(`hf:remove-${kind}`) },
+        ]),
+        enabled: this.hasDoc,
+      });
+    }
     c.register('insert:hyperlink', {
       run: () => {
         ed.commit();
@@ -759,6 +828,38 @@ export class App {
       const rows = c.shortcutList().filter(([, id]) => labels.has(id)).map(([k, id]) => `<tr><td>${labels.get(id)}</td><td><kbd>${k.replace(/\+/g, '</kbd> + <kbd>')}</kbd></td></tr>`).join('');
       dialog('단축키 목록', html(`<table class="kbd-table">${rows}<tr><td>문단 나누기 / 줄 바꿈</td><td><kbd>Enter</kbd> / <kbd>shift</kbd> + <kbd>Enter</kbd></td></tr><tr><td>탭 · 목록 수준 · 다음 셀</td><td><kbd>Tab</kbd> (<kbd>shift</kbd>: 반대로)</td></tr><tr><td>하이퍼링크 열기</td><td><kbd>ctrl</kbd> + 클릭</td></tr></table>`), [{ label: '닫기', primary: true }]);
     }, 'f1');
+  }
+
+  pageNumberTotal = false;
+
+  /** Keep the caret where it is while a dialog or popover has focus. */
+  private keepCaret() { if (!this.editor.hf) this.editor.rememberSelection(); }
+
+  /** Insert plain text at the caret: in the header/footer being edited, or in the body. */
+  private insertPlain(text: string, label: string) {
+    const hf = this.editor.hf;
+    if (hf) { hf.el.focus(); document.execCommand('insertText', false, text); return; }
+    this.structural((pos) => this.doc!.insertText(pos, text, label));
+  }
+
+  /** After the page-type options change, edit the header/footer that now applies to the page. */
+  private reopenHF() {
+    const hf = this.editor.hf;
+    if (hf) this.editor.enterHF(hf.kind, hf.page); else this.editor.paginate();
+    this.syncRibbon();
+  }
+
+  /** Show the "머리글 및 바닥글" tab while a header/footer is edited. */
+  private onHFChanged() {
+    const on = !!this.editor.hf;
+    const tab = document.querySelector<HTMLElement>('.rb-tab[data-tab="hf"]')!;
+    tab.hidden = !on;
+    document.getElementById('studio-root')!.classList.toggle('hf-active', on);
+    if (on) this.showTab('hf');
+    else if (tab.classList.contains('active')) this.showTab('home');
+    this.message(on ? `${this.editor.hf!.kind === 'header' ? '머리글' : '바닥글'} 편집 중 — Esc 또는 본문을 두 번 눌러 닫기` : '');
+    this.syncRibbon();
+    this.queueSync();
   }
 
   private applyStyle(id: string) {
