@@ -1,0 +1,21 @@
+[package]
+name = "oword-desktop"
+version = "0.1.0"
+description = "Oword — DOCX document editor"
+edition = "2021"
+rust-version = "1.86"
+license = "MIT"
+repository = "https://github.com/moonlightpark/Open-word"
+resolver = "3"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.10", features = [] }
+tauri-plugin-dialog = "2.7"
+serde = { version = "1", features = ["derive"] }
+
+[profile.release]
+strip = true
+lto = true

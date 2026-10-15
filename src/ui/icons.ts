@@ -1,0 +1,37 @@
+// Inline SVG toolbar icons (stroke-based, 24x24).
+const S = (body: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="#3b4452" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+
+export const ICONS: Record<string, string> = {
+  new: S('<path d="M6 3h8l4 4v14H6z" fill="#fff"/><path d="M14 3v4h4"/><circle cx="18" cy="18" r="4" fill="#2b6fd6" stroke="none"/><path d="M18 16v4M16 18h4" stroke="#fff"/>'),
+  open: S('<path d="M3 7h6l2 2h10v10H3z" fill="#f6d68a" stroke="#b68b21"/><path d="M3 9h18" stroke="#b68b21"/>'),
+  save: S('<path d="M4 4h13l3 3v13H4z" fill="#dbe7fb" stroke="#2b6fd6"/><rect x="7" y="4" width="9" height="5" stroke="#2b6fd6"/><rect x="7" y="13" width="10" height="7" fill="#fff" stroke="#2b6fd6"/>'),
+  cut: S('<circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M8 15 18 3M16 15 6 3"/>'),
+  copy: S('<rect x="8" y="8" width="12" height="13" rx="1" fill="#fff"/><path d="M16 8V4H4v13h4"/>'),
+  paste: S('<rect x="5" y="4" width="14" height="17" rx="1" fill="#f3e3c3" stroke="#a07a3a"/><rect x="9" y="2.5" width="6" height="3" rx="1" fill="#fff"/><rect x="9" y="9" width="11" height="12" fill="#fff"/>'),
+  undo: S('<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>'),
+  redo: S('<path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>'),
+  table: S('<rect x="3" y="4" width="18" height="16" rx="1" fill="#fff"/><path d="M3 9h18M3 14.5h18M9 4v16M15 4v16"/><path d="M3 4h18v5H3z" fill="#cfe0fb"/>'),
+  image: S('<rect x="3" y="5" width="18" height="14" rx="1" fill="#fff"/><circle cx="8.5" cy="9.5" r="1.8" fill="#f2b632" stroke="none"/><path d="m3 17 5-5 4 4 3-3 6 6" stroke="#2f9e5b"/>'),
+  pagebreak: S('<path d="M6 3h12v6H6zM6 15h12v6H6z" fill="#fff"/><path d="M3 12h3M9 12h2M13 12h2M18 12h3" stroke="#2b6fd6"/>'),
+  para: S('<path d="M10 4h9M10 4a4 4 0 0 0 0 8h2V4M12 4v16M16 4v16"/>'),
+  page: S('<rect x="5" y="3" width="14" height="18" rx="1" fill="#fff"/><rect x="8" y="6" width="8" height="12" stroke-dasharray="2 1.5" stroke="#2b6fd6"/>'),
+  find: S('<circle cx="10" cy="10" r="6" fill="#fff"/><path d="m15 15 6 6" stroke-width="2.2"/>'),
+  print: S('<path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="1" fill="#dbe7fb" stroke="#2b6fd6"/><rect x="7" y="14" width="10" height="7" fill="#fff"/>'),
+  bullet: S('<circle cx="5" cy="7" r="1.6" fill="#3b4452"/><circle cx="5" cy="12" r="1.6" fill="#3b4452"/><circle cx="5" cy="17" r="1.6" fill="#3b4452"/><path d="M10 7h10M10 12h10M10 17h10"/>'),
+  numbering: S('<path d="M4 5h1.5v4M3.5 9h3M3.5 13.5c0-1 2.8-1 2.8 0 0 1.2-2.8 1.8-2.8 3h3M10 7h10M10 12h10M10 17h10" stroke-width="1.3"/>'),
+  outdent: S('<path d="M4 5h16M11 10h9M11 14h9M4 19h16"/><path d="M8 9.5 4.5 12 8 14.5" stroke="#2b6fd6"/>'),
+  indent: S('<path d="M4 5h16M11 10h9M11 14h9M4 19h16"/><path d="M4.5 9.5 8 12l-3.5 2.5" stroke="#2b6fd6"/>'),
+  marks: S('<path d="M10 4h9M10 4a4 4 0 0 0 0 8h2V4M12 4v16M16 4v16" stroke="#2b6fd6"/>'),
+  al: S('<path d="M4 6h16M4 10h10M4 14h16M4 18h10"/>'),
+  ac: S('<path d="M4 6h16M7 10h10M4 14h16M7 18h10"/>'),
+  ar: S('<path d="M4 6h16M10 10h10M4 14h16M10 18h10"/>'),
+  aj: S('<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>'),
+  highlight: S('<path d="m14 4 6 6-8 8H6v-6z" fill="#fff"/><path d="m10 8 6 6"/>'),
+};
+
+export function installIcons(root: ParentNode = document) {
+  root.querySelectorAll<HTMLElement>('[data-icon]').forEach((el) => {
+    const svg = ICONS[el.dataset.icon!];
+    if (svg) el.innerHTML = svg;
+  });
+}

@@ -1,0 +1,634 @@
+// Document editor: one contenteditable flow laid out on page frames.
+// Typing is handled natively by the browser and committed to the model on idle (edit.ts);
+// structural keys (Enter, Tab) and every formatting command go through the engine, after which
+// the affected paragraphs are re-rendered and the selection is restored in model coordinates.
+import { DocxDocument, Pos, Range, comparePos, normRange } from '../engine/document';
+import { commitDom, domToPos, isPara, paraElOf, posToDom } from '../engine/edit';
+import { RunProps, setRunProps } from '../engine/model';
+import { ImageCache, Registry, newRegistry, renderBlocks, renderHeaderFooter, renderParagraph, runCss } from '../engine/render';
+import { create, is } from '../engine/xml';
+
+export interface EditorHooks {
+  doc: () => DocxDocument | null;
+  images: () => ImageCache;
+  selectionChanged: () => void;
+  layoutChanged: () => void;
+  status: (msg: string) => void;
+}
+
+export interface BlockBox { el: HTMLElement; y: number; h: number; mt: number; page: number; endPage: number }
+
+const PX = 4 / 3; // CSS px per pt
+
+export class DocEditor {
+  readonly root: HTMLElement;
+  readonly frames: HTMLElement;
+  readonly host: HTMLElement;
+  zoom = 1;
+  gapPt = 14;
+  pages = 1;
+  layout: BlockBox[] = [];
+  showMarks = false;
+  reg: Registry = newRegistry();
+  private pending = false;
+  private composing = false;
+  private commitTimer = 0;
+  private layoutQueued = false;
+  private pendingFmt: { pos: Pos; span: HTMLElement } | null = null;
+  private selImg: HTMLElement | null = null;
+  private lastRange: Range | null = null;
+
+  constructor(private hooks: EditorHooks, private wrap: HTMLElement) {
+    this.host = document.createElement('div');
+    this.host.id = 'page-host';
+    this.frames = document.createElement('div');
+    this.frames.id = 'page-frames';
+    this.root = document.createElement('div');
+    this.root.id = 'doc-root';
+    this.root.contentEditable = 'true';
+    this.root.spellcheck = false;
+    this.host.append(this.frames, this.root);
+    wrap.appendChild(this.host);
+    this.bind();
+  }
+
+  private get doc() { return this.hooks.doc()!; }
+
+  // ---------------------------------------------------------------- rendering
+
+  private ctx() {
+    return { doc: this.doc, images: this.hooks.images(), part: this.doc.docPath, reg: this.reg, editable: true };
+  }
+
+  render() {
+    const doc = this.hooks.doc();
+    this.root.innerHTML = '';
+    this.reg = newRegistry();
+    this.pending = false;
+    this.pendingFmt = null;
+    this.selImg = null;
+    if (!doc) return;
+    renderBlocks(doc.body, this.ctx(), this.root);
+    this.root.querySelectorAll('img').forEach((img) => img.addEventListener('load', () => this.layoutSoon(), { once: true }));
+    this.paginate();
+  }
+
+  /** Re-render paragraphs [start, start+oldCount) as the model's [start, start+newCount). */
+  refresh(start: number, oldCount: number, newCount: number) {
+    const doc = this.doc;
+    const olds = Array.from(this.root.querySelectorAll<HTMLElement>('p.w-p[data-pi]')).filter((p) => {
+      const i = Number(p.dataset.pi);
+      return i >= start && i < start + oldCount;
+    });
+    const paras = doc.paragraphs().slice(start, start + newCount);
+    const contiguous = olds.length === oldCount && olds.every((p, k) => k === 0 || olds[k - 1].nextElementSibling === p);
+    const parent = olds[0]?.parentElement;
+    const xmlParent = paras[0]?.parentElement;
+    const sameParent = paras.every((p) => p.parentElement === xmlParent) && parent && this.reg.dom.get(parent) === xmlParent;
+    const bodyParent = parent === this.root && xmlParent === doc.body;
+    if (!oldCount || !newCount || !contiguous || !(sameParent || bodyParent)) { this.render(); return; }
+    const ctx = this.ctx();
+    const styleOf = (el: Element | null) => el && is(el, 'w:p') ? doc.pStyleOf(el) ?? doc.styles.defaultPara : undefined;
+    const els = paras.map((p) => {
+      const f = doc.paraFmt(p);
+      const st = styleOf(p);
+      return renderParagraph(p, ctx, { noBefore: !!f.contextual && styleOf(p.previousElementSibling) === st, noAfter: !!f.contextual && styleOf(p.nextElementSibling) === st });
+    });
+    olds[0].before(...els);
+    olds.forEach((o) => o.remove());
+    els.forEach((e) => e.querySelectorAll('img').forEach((img) => img.addEventListener('load', () => this.layoutSoon(), { once: true })));
+    this.reindex();
+    this.paginate();
+  }
+
+  /** Refresh data-pi and list labels after the paragraph list changed. */
+  reindex() {
+    const doc = this.doc;
+    const labels = doc.labels();
+    for (const p of Array.from(this.root.querySelectorAll<HTMLElement>('p.w-p'))) {
+      const x = this.reg.dom.get(p);
+      if (!x) continue;
+      const i = doc.indexOf(x);
+      if (i >= 0) p.dataset.pi = String(i);
+      const lab = labels.get(x);
+      if (lab) p.dataset.label = lab.text + (lab.level.suff === 'space' ? ' ' : '');
+      else if (p.dataset.label) delete p.dataset.label;
+    }
+  }
+
+  // ---------------------------------------------------------------- pagination
+
+  geometry() {
+    const ps = this.doc.pageSetup();
+    const W = ps.w / 20, H = ps.h / 20;
+    return { ps, W, H, top: ps.top / 20, bottom: ps.bottom / 20, left: ps.left / 20, right: ps.right / 20, CW: (ps.w - ps.left - ps.right) / 20 };
+  }
+
+  layoutSoon() {
+    if (this.layoutQueued) return;
+    this.layoutQueued = true;
+    requestAnimationFrame(() => { this.layoutQueued = false; this.paginate(); });
+  }
+
+  /**
+   * Push blocks that would cross a page bottom to the next page (via --push margins) and build the
+   * page frames. Whole paragraphs move, like Word with "keep lines together".
+   */
+  paginate() {
+    const doc = this.hooks.doc();
+    if (!doc) return;
+    const g = this.geometry();
+    this.root.style.left = g.left + 'pt';
+    this.root.style.top = g.top + 'pt';
+    this.root.style.width = g.CW + 'pt';
+    this.host.style.width = g.W + 'pt';
+    this.root.classList.toggle('show-marks', this.showMarks);
+    const blocks = Array.from(this.root.children).filter((c): c is HTMLElement => c instanceof HTMLElement && !c.hidden);
+    for (const b of blocks) b.style.removeProperty('--push');
+    const stride = (g.H + this.gapPt) * PX; // px from one page's content top to the next
+    const content = (g.H - g.top - g.bottom) * PX;
+    const measured = blocks.map((b) => ({ el: b, top: b.offsetTop, h: b.offsetHeight, mt: parseFloat(getComputedStyle(b).marginTop) || 0 }));
+    const out: BlockBox[] = [];
+    let shift = 0, page = 0, breakNext = false;
+    for (const m of measured) {
+      let y = m.top + shift;
+      const pageTop = page * stride;
+      const atTop = y - m.mt <= pageTop + 0.5;
+      const pushTo = (to: number) => {
+        const delta = to * stride - (y - m.mt);
+        if (delta > 0) { shift += delta; y += delta; m.el.style.setProperty('--push', delta + 'px'); }
+        page = to;
+      };
+      const forced = breakNext || m.el.dataset.breakBefore === '1';
+      breakNext = false;
+      if (forced && !(atTop && y > 0)) pushTo(page + 1);
+      else if (y + m.h > pageTop + content && m.h <= content && !atTop) {
+        const prev = out[out.length - 1];
+        if (prev && prev.el.dataset.keepNext === '1' && prev.page === page && prev.y - prev.mt > pageTop + 0.5 && prev.h + m.h <= content) {
+          // Keep a heading with the paragraph that follows it: move the heading instead.
+          const delta = (page + 1) * stride - (prev.y - prev.mt);
+          const cur = parseFloat(prev.el.style.getPropertyValue('--push')) || 0;
+          prev.el.style.setProperty('--push', cur + delta + 'px');
+          shift += delta;
+          prev.y += delta;
+          prev.page = prev.endPage = ++page;
+          y = m.top + shift;
+        } else pushTo(page + 1);
+      }
+      const endPage = Math.max(page, Math.floor((y + m.h - 1) / stride));
+      out.push({ el: m.el, y, h: m.h, mt: m.mt, page, endPage });
+      page = endPage;
+      if (m.el.dataset.breakAfter === '1' || m.el.querySelector('.w-pgbr')) breakNext = true;
+    }
+    this.layout = out;
+    this.pages = Math.max(1, (out.at(-1)?.endPage ?? 0) + 1 + (breakNext ? 1 : 0));
+    this.buildFrames(g);
+    this.applyZoom();
+    this.hooks.layoutChanged();
+  }
+
+  private buildFrames(g: ReturnType<DocEditor['geometry']>) {
+    const doc = this.doc;
+    this.frames.innerHTML = '';
+    for (let i = 0; i < this.pages; i++) {
+      const f = document.createElement('div');
+      f.className = 'page';
+      f.style.top = i * (g.H + this.gapPt) + 'pt';
+      f.style.width = g.W + 'pt';
+      f.style.height = g.H + 'pt';
+      const hf = doc.headerFooter(i + 1);
+      if (hf.header) {
+        const h = renderHeaderFooter(doc, this.hooks.images(), hf.header, i + 1, this.pages);
+        h.className = 'page-header';
+        Object.assign(h.style, { left: g.left + 'pt', width: g.CW + 'pt', top: g.ps.header / 20 + 'pt' });
+        f.appendChild(h);
+      }
+      if (hf.footer) {
+        const ft = renderHeaderFooter(doc, this.hooks.images(), hf.footer, i + 1, this.pages);
+        ft.className = 'page-footer';
+        Object.assign(ft.style, { left: g.left + 'pt', width: g.CW + 'pt', bottom: g.ps.footer / 20 + 'pt' });
+        f.appendChild(ft);
+      }
+      // Margin corner marks, like Word's text boundaries.
+      const marks = document.createElement('div');
+      marks.className = 'margin-marks';
+      Object.assign(marks.style, { left: g.left + 'pt', top: g.top + 'pt', width: g.CW + 'pt', height: g.H - g.top - g.bottom + 'pt' });
+      f.appendChild(marks);
+      this.frames.appendChild(f);
+    }
+    this.host.style.height = this.pages * (g.H + this.gapPt) - this.gapPt + 'pt';
+  }
+
+  setZoom(z: number) {
+    this.zoom = Math.max(0.2, Math.min(5, z));
+    this.applyZoom();
+  }
+
+  private applyZoom() {
+    const doc = this.hooks.doc();
+    if (!doc) return;
+    const g = this.geometry();
+    this.host.style.transform = `scale(${this.zoom})`;
+    this.wrap.style.width = g.W * PX * this.zoom + 'px';
+    this.wrap.style.height = (this.pages * (g.H + this.gapPt) - this.gapPt) * PX * this.zoom + 'px';
+  }
+
+  /** 1-based page of the caret. */
+  caretPage(): number {
+    const sel = window.getSelection();
+    const node = sel?.focusNode;
+    if (!node || !this.root.contains(node)) return 1;
+    let el: Node | null = node;
+    while (el && el.parentNode !== this.root) el = el.parentNode;
+    const box = this.layout.find((b) => b.el === el);
+    if (!box) return 1;
+    const g = this.geometry();
+    const stride = (g.H + this.gapPt) * PX;
+    // Inside long blocks use the caret rectangle.
+    const r = sel!.rangeCount ? sel!.getRangeAt(0).getBoundingClientRect() : null;
+    if (r && r.height && box.endPage > box.page) {
+      const rootTop = this.root.getBoundingClientRect().top;
+      return Math.floor((r.top - rootTop) / this.zoom / stride) + 1;
+    }
+    return box.page + 1;
+  }
+
+  scrollToPara(pi: number) {
+    const p = this.root.querySelector<HTMLElement>(`p.w-p[data-pi="${pi}"]`);
+    if (!p) return;
+    p.scrollIntoView({ block: 'center' });
+    this.setRange({ start: { pi, off: 0 }, end: { pi, off: 0 } });
+  }
+
+  // ---------------------------------------------------------------- selection
+
+  getRange(): Range | null {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount || !this.root.contains(sel.anchorNode)) return this.lastRange;
+    const a = domToPos(this.root, sel.anchorNode!, sel.anchorOffset);
+    const f = domToPos(this.root, sel.focusNode!, sel.focusOffset);
+    if (!a || !f) return this.lastRange;
+    return { start: a, end: f };
+  }
+
+  setRange(r: Range | null, scroll = true) {
+    if (!r) return;
+    const pa = this.root.querySelector<HTMLElement>(`p.w-p[data-pi="${r.start.pi}"]`);
+    const pf = this.root.querySelector<HTMLElement>(`p.w-p[data-pi="${r.end.pi}"]`);
+    if (!pa || !pf) return;
+    const [an, ao] = posToDom(pa, r.start.off);
+    const [fn, fo] = posToDom(pf, r.end.off);
+    const sel = window.getSelection()!;
+    this.root.focus({ preventScroll: true });
+    sel.setBaseAndExtent(an, ao, fn, fo);
+    this.lastRange = r;
+    if (scroll) {
+      const el = fn.nodeType === 1 ? fn as HTMLElement : fn.parentElement;
+      el?.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  collapsed() {
+    const r = this.getRange();
+    return !r || comparePos(r.start, r.end) === 0;
+  }
+
+  focus() { this.root.focus({ preventScroll: true }); }
+
+  /** Remember the selection before focus moves to a toolbar input. */
+  rememberSelection() { this.lastRange = this.getRange(); }
+
+  // ---------------------------------------------------------------- commit
+
+  /** Write pending DOM edits to the model. Returns true when something changed. */
+  commit(): boolean {
+    clearTimeout(this.commitTimer);
+    const doc = this.hooks.doc();
+    if (!doc || !this.pending) return false;
+    this.pending = false;
+    let changed = 0;
+    let pairs: [HTMLElement, Element][] = [];
+    this.committing = true;
+    try {
+      doc.transact('입력', [], () => {
+        ({ pairs, changed } = commitDom(this.root, doc, this.reg));
+      });
+    } finally {
+      this.committing = false;
+    }
+    for (const [el, x] of pairs) { this.reg.dom.set(el, x); this.reg.sig.set(el, el.innerHTML); }
+    this.reindex();
+    return changed > 0;
+  }
+
+  committing = false;
+
+  private scheduleCommit() {
+    clearTimeout(this.commitTimer);
+    this.commitTimer = window.setTimeout(() => { if (!this.composing) { this.commit(); this.hooks.selectionChanged(); } }, 900);
+  }
+
+  // ---------------------------------------------------------------- formatting helpers
+
+  /**
+   * Apply character formatting. A collapsed caret inside a word formats the word (as Word does);
+   * elsewhere it arms "pending" formatting for the next typed text.
+   */
+  applyRunProps(props: RunProps, label?: string): boolean {
+    const doc = this.doc;
+    this.commit();
+    let r = this.getRange();
+    if (!r) return false;
+    r = normRange(r);
+    if (comparePos(r.start, r.end) === 0) {
+      const w = doc.wordAt(r.start);
+      if (!w) { this.armPending(r.start, props); return true; }
+      doc.applyRunProps(w, props, label);
+      this.refresh(w.start.pi, 1, 1);
+      this.setRange(r, false);
+      return true;
+    }
+    doc.applyRunProps(r, props, label);
+    this.refresh(r.start.pi, r.end.pi - r.start.pi + 1, r.end.pi - r.start.pi + 1);
+    this.setRange(r, false);
+    return true;
+  }
+
+  /** Insert an empty styled span at the caret so the next typed characters get `props`. */
+  private armPending(pos: Pos, props: RunProps) {
+    const doc = this.doc;
+    const p = doc.para(pos.pi);
+    if (!p) return;
+    const prev = this.pendingFmt && comparePos(this.pendingFmt.pos, pos) === 0 ? this.pendingFmt.span : null;
+    const base = prev ? this.reg.runs[Number(prev.dataset.r)] : doc.rPrAt(p, pos.off);
+    const rPr = base ? base.cloneNode(true) as Element : create(doc.xml, 'w:rPr');
+    setRunProps(rPr, props);
+    if (prev) {
+      this.reg.runs[Number(prev.dataset.r)] = rPr;
+      runCss(prev, doc.runFmt(p, rPr));
+      this.placeCaretIn(prev);
+      this.hooks.selectionChanged();
+      return;
+    }
+    const span = document.createElement('span');
+    span.dataset.r = String(this.reg.runs.push(rPr) - 1);
+    runCss(span, doc.runFmt(p, rPr));
+    span.textContent = '​';
+    const pel = this.root.querySelector<HTMLElement>(`p.w-p[data-pi="${pos.pi}"]`);
+    if (!pel) return;
+    const [node, off] = posToDom(pel, pos.off);
+    const range = document.createRange();
+    range.setStart(node, off);
+    range.collapse(true);
+    range.insertNode(span);
+    this.pendingFmt = { pos, span };
+    this.pending = true;
+    this.placeCaretIn(span);
+    this.hooks.selectionChanged();
+  }
+
+  private placeCaretIn(span: HTMLElement) {
+    const t = span.firstChild!;
+    this.root.focus({ preventScroll: true });
+    window.getSelection()!.setBaseAndExtent(t, t.textContent!.length, t, t.textContent!.length);
+  }
+
+  /** Run properties of the pending span, when the caret sits in it. */
+  pendingRPr(): Element | null | undefined {
+    const span = this.pendingFmt?.span;
+    if (!span?.isConnected) return undefined;
+    const sel = window.getSelection();
+    if (!sel?.focusNode || !span.contains(sel.focusNode)) return undefined;
+    return this.reg.runs[Number(span.dataset.r)];
+  }
+
+  /** Paragraph indices covered by the selection. */
+  paraIndices(): number[] {
+    const r = this.getRange();
+    if (!r) return [];
+    return this.doc.paraRange(r);
+  }
+
+  /** Run a paragraph-level command on the selection and refresh. */
+  paraCommand(fn: (pis: number[]) => void) {
+    this.commit();
+    const r = this.getRange();
+    if (!r) return;
+    const pis = this.doc.paraRange(r);
+    fn(pis);
+    const before = pis.length;
+    this.refresh(pis[0], before, before);
+    this.setRange(r, false);
+  }
+
+  // ---------------------------------------------------------------- events
+
+  private bind() {
+    const root = this.root;
+    root.addEventListener('beforeinput', (e) => this.onBeforeInput(e));
+    root.addEventListener('input', () => {
+      this.pending = true;
+      this.scheduleCommit();
+      this.layoutSoon();
+    });
+    root.addEventListener('compositionstart', () => { this.composing = true; });
+    root.addEventListener('compositionend', () => { this.composing = false; this.pending = true; this.scheduleCommit(); });
+    root.addEventListener('blur', () => { if (!this.composing) this.commit(); });
+    root.addEventListener('keydown', (e) => this.onKeyDown(e));
+    root.addEventListener('mousedown', (e) => this.onMouseDown(e));
+    root.addEventListener('click', (e) => {
+      const a = (e.target as HTMLElement).closest('a.w-hyperlink') as HTMLElement | null;
+      if (a?.dataset.href && (e.ctrlKey || e.metaKey)) window.open(a.dataset.href, '_blank');
+    });
+    root.addEventListener('dragstart', (e) => { if ((e.target as HTMLElement).tagName === 'IMG') e.preventDefault(); });
+    document.addEventListener('selectionchange', () => {
+      const sel = window.getSelection();
+      if (sel?.anchorNode && root.contains(sel.anchorNode)) {
+        this.lastRange = this.getRange();
+        this.hooks.selectionChanged();
+      }
+    });
+  }
+
+  private onBeforeInput(e: InputEvent) {
+    const t = e.inputType;
+    if (t.startsWith('format') || t === 'insertFromDrop' || t === 'deleteByDrag') { e.preventDefault(); return; }
+    if (t === 'insertParagraph') {
+      e.preventDefault();
+      // During IME composition the composed text must land before splitting.
+      if (this.composing || e.isComposing) setTimeout(() => this.enter(), 0);
+      else this.enter();
+      return;
+    }
+  }
+
+  /** Enter: split the paragraph in the model. */
+  enter() {
+    const doc = this.hooks.doc();
+    if (!doc) return;
+    if (!this.collapsed()) { document.execCommand('delete'); }
+    this.commit();
+    const r = this.getRange();
+    if (!r) return;
+    const pos = r.end;
+    const n = doc.paragraphs().length;
+    const next = doc.splitAt(pos);
+    const added = doc.paragraphs().length - n;
+    this.refresh(pos.pi, 1, 1 + added);
+    this.setRange({ start: next, end: next });
+  }
+
+  private onKeyDown(e: KeyboardEvent) {
+    if (e.isComposing || e.keyCode === 229) return;
+    const doc = this.hooks.doc();
+    if (!doc) return;
+    if (this.selImg && (e.key === 'Delete' || e.key === 'Backspace')) {
+      e.preventDefault();
+      const atom = this.selImg.closest('[data-a]');
+      this.deselectImage();
+      atom?.remove();
+      this.pending = true;
+      this.commit();
+      this.render();
+      return;
+    }
+    if (this.selImg) this.deselectImage();
+    if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      this.onTab(e.shiftKey);
+      return;
+    }
+    if (e.key === 'Backspace' && !e.shiftKey && this.collapsed()) {
+      const r = this.getRange();
+      const p = r && doc.para(r.start.pi);
+      if (r && p && r.start.off === 0 && doc.labels().get(p)) {
+        e.preventDefault();
+        this.commit();
+        const f = doc.paraFmt(p);
+        doc.toggleList([r.start.pi], doc.numbering.isBullet(f.numId!, f.ilvl ?? 0) ? 'bullet' : 'number');
+        this.refresh(r.start.pi, 1, 1);
+        this.setRange(r);
+      }
+    }
+  }
+
+  private onTab(shift: boolean) {
+    const doc = this.doc;
+    this.commit();
+    const r = this.getRange();
+    if (!r) return;
+    const p = doc.para(r.start.pi)!;
+    const cell = doc.cellOf(r.start.pi);
+    if (cell) {
+      // Move between cells.
+      const all = Array.from(this.root.querySelectorAll<HTMLElement>('td'));
+      const td = this.root.querySelector<HTMLElement>(`p.w-p[data-pi="${r.start.pi}"]`)?.closest('td');
+      const i = td ? all.indexOf(td as HTMLElement) : -1;
+      const target = all[i + (shift ? -1 : 1)];
+      if (target) {
+        const first = target.querySelector<HTMLElement>('p.w-p[data-pi]');
+        if (first) {
+          const pi = Number(first.dataset.pi);
+          const len = doc.lengthOf(doc.para(pi)!);
+          this.setRange({ start: { pi, off: 0 }, end: { pi, off: shift ? 0 : len } });
+        }
+      }
+      return;
+    }
+    if (doc.labels().get(p) && r.start.off === 0 && comparePos(r.start, r.end) === 0) {
+      doc.indent([r.start.pi], shift ? -1 : 1);
+      this.refresh(r.start.pi, 1, 1);
+      this.setRange(r);
+      return;
+    }
+    if (shift) return;
+    if (comparePos(r.start, r.end) !== 0) { document.execCommand('delete'); this.commit(); }
+    const at = this.getRange()!.start;
+    const next = doc.insertTab(at);
+    this.refresh(at.pi, 1, 1);
+    this.setRange({ start: next, end: next });
+  }
+
+  // ---------------------------------------------------------------- images
+
+  private onMouseDown(e: MouseEvent) {
+    const t = e.target as HTMLElement;
+    if (t.classList.contains('img-handle')) { this.startResize(e); return; }
+    if (t.tagName === 'IMG' && t.closest('#doc-root')) {
+      e.preventDefault();
+      this.selectImage(t);
+      return;
+    }
+    if (this.selImg) this.deselectImage();
+  }
+
+  private selectImage(img: HTMLElement) {
+    this.deselectImage();
+    this.selImg = img;
+    img.classList.add('selected');
+    const atom = img.closest('[data-a]') as HTMLElement;
+    const handle = document.createElement('span');
+    handle.className = 'img-handle';
+    handle.contentEditable = 'false';
+    atom.appendChild(handle);
+    // Put the caret just before the image so typing continues from there.
+    const sel = window.getSelection()!;
+    const parent = atom.parentNode!;
+    sel.setBaseAndExtent(parent, Array.prototype.indexOf.call(parent.childNodes, atom), parent, Array.prototype.indexOf.call(parent.childNodes, atom));
+    this.hooks.status(`그림 ${Math.round(img.offsetWidth * 0.75)} × ${Math.round(img.offsetHeight * 0.75)} pt — 모서리를 끌어서 크기 조절, Delete로 지우기`);
+  }
+
+  deselectImage() {
+    if (!this.selImg) return;
+    this.selImg.classList.remove('selected');
+    this.selImg.closest('[data-a]')?.querySelector('.img-handle')?.remove();
+    this.selImg = null;
+  }
+
+  private startResize(e: MouseEvent) {
+    e.preventDefault();
+    const img = this.selImg;
+    if (!img) return;
+    const atom = img.closest('[data-a]') as HTMLElement;
+    const p = paraElOf(atom, this.root);
+    if (!p) return;
+    const parent = atom.parentNode!;
+    const pos = domToPos(this.root, parent, Array.prototype.indexOf.call(parent.childNodes, atom));
+    const w0 = img.offsetWidth, h0 = img.offsetHeight, x0 = e.clientX;
+    const g = this.geometry();
+    const move = (ev: MouseEvent) => {
+      const w = Math.max(16, Math.min(g.CW * PX, w0 + (ev.clientX - x0) / this.zoom));
+      img.style.width = w + 'px';
+      img.style.height = (w * h0) / w0 + 'px';
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      if (!pos) return;
+      this.commit();
+      const wPt = img.offsetWidth * 0.75, hPt = img.offsetHeight * 0.75;
+      this.doc.resizeImage(pos, wPt, hPt);
+      this.refresh(pos.pi, 1, 1);
+      this.setRange({ start: pos, end: pos });
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }
+
+  // ---------------------------------------------------------------- misc
+
+  /** Highlight a find hit. */
+  selectHit(h: { pi: number; off: number; len: number }) {
+    this.setRange({ start: { pi: h.pi, off: h.off }, end: { pi: h.pi, off: h.off + h.len } });
+  }
+
+  isEditorTarget(t: EventTarget | null) {
+    return t instanceof Node && this.root.contains(t);
+  }
+
+  paragraphElement(pi: number) {
+    return this.root.querySelector<HTMLElement>(`p.w-p[data-pi="${pi}"]`);
+  }
+
+  isParaEl = isPara;
+}

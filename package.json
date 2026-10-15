@@ -1,0 +1,31 @@
+{
+  "name": "oword",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "notices": "node scripts/notices.mjs",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "~2.11.1",
+    "jszip": "3.10.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.5",
+    "@types/node": "^22.10.2",
+    "jsdom": "25.0.1",
+    "typescript": "5.6.3",
+    "vite": "6.3.5",
+    "vitest": "3.1.4"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/moonlightpark/Open-word.git"
+  }
+}
