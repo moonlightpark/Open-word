@@ -315,3 +315,152 @@ export function pageSetupDialog(ps: PageSetup, apply: (ps: PageSetup) => void) {
     },
   ]);
 }
+
+// ------------------------------------------------------------------ Word-style dialogs
+
+export interface FontDialogResult {
+  font?: string; ascii?: string; ea?: string; sz?: number; b: boolean; i: boolean; u: string; color: string | null;
+  strike: boolean; dstrike: boolean; vertAlign: 'superscript' | 'subscript' | 'baseline'; smallCaps: boolean; caps: boolean; vanish: boolean;
+}
+
+const UNDERLINES: [string, string][] = [['none', '(없음)'], ['single', '실선'], ['words', '단어만'], ['double', '이중선'], ['thick', '굵은 선'], ['dotted', '점선'], ['dash', '파선'], ['wave', '물결선']];
+
+/** 글꼴 dialog (Format ▸ Font…, Ctrl+D). */
+export function fontDialog(f: { ascii?: string; ea?: string; sz?: number; b?: boolean; i?: boolean; u?: string; color?: string; strike?: boolean; dstrike?: boolean; vertAlign?: string; smallCaps?: boolean; caps?: boolean; vanish?: boolean }, fonts: string[], apply: (r: FontDialogResult) => void) {
+  const style = f.b && f.i ? 'bi' : f.b ? 'b' : f.i ? 'i' : 'r';
+  const body = html(`
+    <div class="form">
+      <label>한글 글꼴</label><input type="text" name="ea" list="dlg-fonts" value="${f.ea ?? ''}">
+      <label>영어 글꼴</label><input type="text" name="ascii" list="dlg-fonts" value="${f.ascii ?? ''}">
+      <label>글꼴 스타일</label><select name="style"><option value="r">보통</option><option value="i">기울임꼴</option><option value="b">굵게</option><option value="bi">굵은 기울임꼴</option></select>
+      <label>크기 (pt)</label><input type="number" name="sz" step="0.5" min="1" value="${(f.sz ?? 20) / 2}">
+      <label>글꼴 색</label><span><input type="color" name="color" value="#${f.color && f.color !== 'auto' ? f.color : '000000'}"> <label><input type="checkbox" name="auto" ${!f.color || f.color === 'auto' ? 'checked' : ''}> 자동</label></span>
+      <label>밑줄 스타일</label><select name="u">${UNDERLINES.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
+    </div>
+    <div class="dlg-sect">효과</div>
+    <div class="dlg-checks">
+      <label><input type="checkbox" name="strike"> 취소선</label>
+      <label><input type="checkbox" name="dstrike"> 이중 취소선</label>
+      <label><input type="checkbox" name="sup"> 위 첨자</label>
+      <label><input type="checkbox" name="sub"> 아래 첨자</label>
+      <label><input type="checkbox" name="smallCaps"> 작은 대문자</label>
+      <label><input type="checkbox" name="caps"> 모두 대문자</label>
+      <label><input type="checkbox" name="vanish"> 숨김</label>
+    </div>
+    <div class="dlg-sect">미리 보기</div>
+    <div class="font-preview">가나다 AaBbCc 123</div>
+    <datalist id="dlg-fonts">${fonts.map((x) => `<option value="${x}">`).join('')}</datalist>`);
+  const q = <T extends HTMLElement = HTMLInputElement>(n: string) => body.querySelector(`[name="${n}"]`) as T;
+  q<HTMLSelectElement>('style').value = style;
+  q<HTMLSelectElement>('u').value = UNDERLINES.some(([v]) => v === f.u) ? f.u! : f.u ? 'single' : 'none';
+  for (const k of ['strike', 'dstrike', 'smallCaps', 'caps', 'vanish'] as const) q(k).checked = !!f[k];
+  q('sup').checked = f.vertAlign === 'superscript';
+  q('sub').checked = f.vertAlign === 'subscript';
+  // Mutually exclusive pairs, like Word.
+  for (const [a, b] of [['strike', 'dstrike'], ['sup', 'sub'], ['smallCaps', 'caps']]) {
+    q(a).addEventListener('change', () => { if (q(a).checked) q(b).checked = false; });
+    q(b).addEventListener('change', () => { if (q(b).checked) q(a).checked = false; });
+  }
+  const preview = body.querySelector<HTMLElement>('.font-preview')!;
+  const update = () => {
+    const st = q<HTMLSelectElement>('style').value;
+    Object.assign(preview.style, {
+      fontFamily: `'${q('ascii').value}','${q('ea').value}',sans-serif`,
+      fontSize: Math.min(36, Number(q('sz').value) || 10) + 'pt',
+      fontWeight: st.includes('b') ? 'bold' : 'normal', fontStyle: st.includes('i') ? 'italic' : 'normal',
+      color: q('auto').checked ? '#000' : q('color').value,
+      textDecorationLine: [q<HTMLSelectElement>('u').value !== 'none' ? 'underline' : '', q('strike').checked || q('dstrike').checked ? 'line-through' : ''].filter(Boolean).join(' ') || 'none',
+      textTransform: q('caps').checked ? 'uppercase' : 'none', fontVariant: q('smallCaps').checked ? 'small-caps' : 'normal',
+      opacity: q('vanish').checked ? '.4' : '1',
+    });
+  };
+  body.addEventListener('input', update);
+  body.addEventListener('change', update);
+  q('color').addEventListener('input', () => { q('auto').checked = false; });
+  update();
+  dialog('글꼴', body, [
+    { label: '취소' },
+    {
+      label: '확인', primary: true, action: () => {
+        const st = q<HTMLSelectElement>('style').value;
+        const ea = q('ea').value.trim(), ascii = q('ascii').value.trim();
+        apply({
+          font: ascii && ascii === ea ? ascii : undefined,
+          ...(ascii !== ea ? { ascii, ea } as object : {}),
+          sz: Number(q('sz').value) || undefined, b: st.includes('b'), i: st.includes('i'),
+          u: q<HTMLSelectElement>('u').value, color: q('auto').checked ? null : q('color').value.slice(1).toUpperCase(),
+          strike: q('strike').checked, dstrike: q('dstrike').checked,
+          vertAlign: q('sup').checked ? 'superscript' : q('sub').checked ? 'subscript' : 'baseline',
+          smallCaps: q('smallCaps').checked, caps: q('caps').checked, vanish: q('vanish').checked,
+        } as FontDialogResult);
+      },
+    },
+  ]);
+}
+
+/** 하이퍼링크 dialog (Insert ▸ Hyperlink…, Ctrl+K). */
+export function hyperlinkDialog(text: string, bookmarks: string[], apply: (url: string, text: string) => void) {
+  const body = html(`
+    <div class="form" style="grid-template-columns:auto 1fr">
+      <label>표시할 텍스트</label><input type="text" name="text" value="${text.replace(/"/g, '&quot;')}" ${text ? 'disabled' : ''}>
+      <label>주소</label><input type="text" name="url" placeholder="https://">
+      ${bookmarks.length ? `<label>문서 안 위치</label><select name="bm"><option value="">(웹 주소 사용)</option>${bookmarks.map((b) => `<option value="${b}">${b}</option>`).join('')}</select>` : ''}
+    </div>`);
+  const q = <T extends HTMLElement = HTMLInputElement>(n: string) => body.querySelector(`[name="${n}"]`) as T;
+  dialog('하이퍼링크 삽입', body, [
+    { label: '취소' },
+    {
+      label: '확인', primary: true, action: () => {
+        const bm = q<HTMLSelectElement>('bm')?.value;
+        let url = bm ? '#' + bm : q('url').value.trim();
+        if (!url) return false;
+        if (!bm && !/^[a-z][a-z0-9+.-]*:/i.test(url)) url = (url.includes('@') ? 'mailto:' : 'https://') + url;
+        apply(url, text || q('text').value.trim());
+      },
+    },
+  ]);
+}
+
+/** 날짜 및 시간 dialog. */
+export function dateDialog(apply: (s: string) => void) {
+  const d = new Date();
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  const days = '일월화수목금토';
+  const fmts = [
+    `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`,
+    `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`,
+    `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${days[d.getDay()]}요일`,
+    `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`,
+    `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`,
+    d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+    `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`,
+    `${d.getHours() < 12 ? '오전' : '오후'} ${d.getHours() % 12 || 12}:${p2(d.getMinutes())}`,
+  ];
+  const body = html(`<select name="f" size="${fmts.length}" class="list-select">${fmts.map((f, i) => `<option value="${i}" ${i ? '' : 'selected'}>${f}</option>`).join('')}</select>`);
+  const sel = body.querySelector('select')!;
+  let close = () => {};
+  sel.ondblclick = () => { close(); apply(fmts[Number(sel.value)]); };
+  close = dialog('날짜 및 시간', body, [{ label: '취소' }, { label: '삽입', primary: true, action: () => apply(fmts[Number(sel.value)]) }]);
+}
+
+const SYMBOLS = '©®™§¶†‡•·…‰′″‹›«»“”‘’–—±×÷≠≈≤≥∞√∑∏∫∂∆∇∈∉∩∪⊂⊃∧∨¬∀∃°℃℉€£¥¢₩αβγδεθλμπσφωΩ←→↑↓↔⇒⇔①②③④⑤⑥⑦⑧⑨⑩★☆○●◎◇◆□■△▲▽▼※♠♣♥♦✓✗☐☑☎♪';
+
+/** 기호 picker. */
+export function symbolPopover(anchor: HTMLElement, pick: (s: string) => void) {
+  const grid = document.createElement('div');
+  grid.className = 'symbol-grid';
+  for (const ch of Array.from(SYMBOLS)) {
+    const b = document.createElement('button');
+    b.textContent = ch;
+    b.title = 'U+' + ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0');
+    b.onclick = () => { closePopover(); pick(ch); };
+    grid.appendChild(b);
+  }
+  popover(anchor, grid);
+}
+
+/** A small menu under a ribbon button (margins, orientation, size, delete…). */
+export function menuPopover(anchor: HTMLElement, items: MenuItem[]) {
+  const r = anchor.getBoundingClientRect();
+  contextMenu(r.left, r.bottom + 2, items);
+}

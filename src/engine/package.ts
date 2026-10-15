@@ -148,6 +148,16 @@ export class OpcPackage {
     return this.rels(part).find((r) => r.type === type);
   }
 
+  /** Relationship to an external target (e.g. a hyperlink URL). */
+  addExternalRel(part: string, type: string, url: string): string {
+    const id = this.addRel(part, type, 'x');
+    const doc = this.getXml(relsPathFor(part))!;
+    const el = children(doc.documentElement).find((r) => r.getAttribute('Id') === id)!;
+    el.setAttribute('Target', url);
+    el.setAttribute('TargetMode', 'External');
+    return id;
+  }
+
   addRel(part: string, type: string, target: string): string {
     const rp = relsPathFor(part);
     let doc = this.getXml(rp);

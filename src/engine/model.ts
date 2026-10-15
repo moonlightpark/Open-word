@@ -345,6 +345,8 @@ export interface RunProps {
   highlight?: string | null; // highlight name, null = none
   font?: string;
   vertAlign?: 'superscript' | 'subscript' | 'baseline';
+  dstrike?: boolean; caps?: boolean; smallCaps?: boolean; vanish?: boolean;
+  ascii?: string; ea?: string; // separate Latin / East Asian fonts
 }
 
 function toggle(rPr: Element, qname: string, on: boolean | undefined) {
@@ -360,6 +362,13 @@ export function setRunProps(rPr: Element, p: RunProps) {
   if (p.i !== undefined) toggle(rPr, 'w:iCs', p.i);
   toggle(rPr, 'w:strike', p.strike);
   if (p.strike) removeChild(rPr, 'w:dstrike');
+  toggle(rPr, 'w:dstrike', p.dstrike);
+  if (p.dstrike) removeChild(rPr, 'w:strike');
+  toggle(rPr, 'w:caps', p.caps);
+  if (p.caps) removeChild(rPr, 'w:smallCaps');
+  toggle(rPr, 'w:smallCaps', p.smallCaps);
+  if (p.smallCaps) removeChild(rPr, 'w:caps');
+  toggle(rPr, 'w:vanish', p.vanish);
   if (p.u !== undefined) setAttr(ensureOrdered(rPr, 'w:u', RPR_ORDER), 'w:val', p.u === true ? 'single' : p.u === false ? 'none' : p.u);
   if (p.sz !== undefined) {
     const hp = String(Math.round(p.sz * 2));
@@ -379,6 +388,11 @@ export function setRunProps(rPr: Element, p: RunProps) {
     const el = ensureOrdered(rPr, 'w:rFonts', RPR_ORDER);
     for (const a of ['asciiTheme', 'hAnsiTheme', 'eastAsiaTheme', 'cstheme']) el.removeAttributeNS(NS.w, a);
     for (const a of ['w:ascii', 'w:hAnsi', 'w:eastAsia', 'w:cs']) setAttr(el, a, p.font);
+  }
+  if (p.ascii || p.ea) {
+    const el = ensureOrdered(rPr, 'w:rFonts', RPR_ORDER);
+    if (p.ascii) { for (const a of ['asciiTheme', 'hAnsiTheme']) el.removeAttributeNS(NS.w, a); setAttr(el, 'w:ascii', p.ascii); setAttr(el, 'w:hAnsi', p.ascii); }
+    if (p.ea) { el.removeAttributeNS(NS.w, 'eastAsiaTheme'); setAttr(el, 'w:eastAsia', p.ea); }
   }
   if (p.vertAlign !== undefined) {
     if (p.vertAlign === 'baseline') removeChild(rPr, 'w:vertAlign');

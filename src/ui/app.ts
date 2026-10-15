@@ -1,11 +1,12 @@
 // Application controller: document lifecycle, command registration, UI state sync.
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { DocxDocument, Pos, Range, comparePos, normRange } from '../engine/document';
+import { DocxDocument, Pos, Range, TWIP_PER_CM, comparePos, normRange } from '../engine/document';
 import { RunProps } from '../engine/model';
 import { ImageCache } from '../engine/render';
-import { RunFmt, styleLabel } from '../engine/styles';
+import { ParaFmt, RunFmt, styleLabel } from '../engine/styles';
+import { fontStack } from '../engine/render';
 import { Commands } from './commands';
-import { closeContextMenu, closePopover, colorPopover, contextMenu, dialog, highlightPopover, html, pageSetupDialog, paragraphDialog, tablePopover, toast } from './dialogs';
+import { closeContextMenu, closePopover, colorPopover, contextMenu, dateDialog, dialog, fontDialog, highlightPopover, html, hyperlinkDialog, menuPopover, pageSetupDialog, paragraphDialog, symbolPopover, tablePopover, toast } from './dialogs';
 import { DocEditor } from './editor';
 import { installIcons } from './icons';
 import { printDocument } from './print';
@@ -13,6 +14,8 @@ import { drawRulers } from './ruler';
 import { isDesktop, pickImage, pickOpenFile, saveFile } from './shell';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+/** A popover anchor: the ribbon button when it is visible, else the menu bar. */
+const anchor = (id: string) => { const e = $(id); return e && e.offsetParent ? e : $('menu-bar'); };
 
 const FONTS = ['맑은 고딕', 'Apple SD Gothic Neo', '나눔고딕', '나눔명조', '굴림', '돋움', '바탕', '궁서', 'Noto Sans KR', 'Pretendard', 'Arial', 'Calibri', 'Calibri Light', 'Cambria', 'Helvetica', 'Times New Roman', 'Georgia', 'Verdana', 'Tahoma', 'Segoe UI', 'Consolas', 'Courier New'];
 const SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72];
@@ -31,6 +34,8 @@ export class App {
   fit: 'width' | 'page' | null = null;
   showRuler = true;
   showOutline = true;
+  showRibbon = true;
+  showGridlines = true;
   clipboard: Clip | null = null;
   lastTextColor = 'C00000';
   lastHighlight = 'yellow';
@@ -130,19 +135,28 @@ export class App {
   private queueSync() {
     if (this.syncQueued) return;
     this.syncQueued = true;
-    requestAnimationFrame(() => { this.syncQueued = false; this.syncStyleBar(); this.syncRulers(); this.syncStatus(); });
+    requestAnimationFrame(() => { this.syncQueued = false; this.syncStyleBar(); this.syncRulers(); this.syncStatus(); this.syncRibbon(); });
+  }
+
+  /** Enable state of ribbon buttons and the view checkboxes. */
+  syncRibbon() {
+    document.querySelectorAll<HTMLElement>('#ribbon [data-cmd]').forEach((b) => b.classList.toggle('disabled', !this.cmd.enabled(b.dataset.cmd!)));
+    document.querySelectorAll<HTMLInputElement>('[data-check]').forEach((cb) => { cb.checked = this.cmd.checked(cb.dataset.check!); });
+    $('tb-marks').classList.toggle('active', this.editor.showMarks);
   }
 
   syncStatus() {
     const n = this.editor.pages;
-    $('sb-page').textContent = this.doc ? `쪽 ${Math.min(n, this.editor.caretPage())} / ${n}` : '쪽 0 / 0';
+    $('sb-page').textContent = this.doc ? `페이지 ${Math.min(n, this.editor.caretPage())}/${n}` : '페이지 0/0';
     $('sb-zoom-val').textContent = Math.round(this.editor.zoom * 100) + '%';
+    const zs = $<HTMLInputElement>('zoom-slider');
+    if (document.activeElement !== zs) zs.value = String(Math.round(this.editor.zoom * 100));
   }
 
   private updateInfo() {
     if (!this.doc) return;
     const s = this.doc.stats();
-    $('sb-count').textContent = `글자 ${s.chars.toLocaleString()} · 단어 ${s.words.toLocaleString()}`;
+    $('sb-count').textContent = `${s.words.toLocaleString()} 단어 · ${s.chars.toLocaleString()} 글자`;
   }
 
   /** Character formatting at the caret: the pending span, the run under the caret, or the model. */
@@ -192,11 +206,11 @@ export class App {
     for (const [id, a] of [['btn-align-left', 'left'], ['btn-align-center', 'center'], ['btn-align-right', 'right'], ['btn-align-justify', 'both']]) {
       $(id).classList.toggle('active', !!pf && (jc === a || (a === 'both' && jc === 'distribute')));
     }
-    const sel = $<HTMLSelectElement>('para-style');
-    if (p && document.activeElement !== sel) {
+    if (p) {
       const id = doc!.pStyleOf(p) ?? doc!.styles.defaultPara ?? '';
-      if (![...sel.options].some((o) => o.value === id)) this.buildStyleList(id);
-      sel.value = id;
+      const gal = $('style-gallery');
+      if (!gal.querySelector(`[data-style="${CSS.escape(id)}"]`)) this.buildStyleList(id);
+      gal.querySelectorAll<HTMLElement>('.style-card').forEach((c) => c.classList.toggle('active', c.dataset.style === id));
     }
     const ls = $<HTMLSelectElement>('line-spacing');
     if (pf && document.activeElement !== ls) {
@@ -212,15 +226,40 @@ export class App {
       const b = $(`btn-valign-${v}`);
       b.classList.toggle('active', va === v);
       b.classList.toggle('disabled', !va);
+      for (const h of ['left', 'center', 'right']) $(`btn-cell-${v}-${h}`).classList.toggle('active', va === v && (jc === h || (h === 'left' && jc === 'both')));
     }
+    // The contextual "표 레이아웃" tab exists only while the caret is in a table (as in Word).
+    const tabBtn = document.querySelector<HTMLElement>('.rb-tab[data-tab="table"]')!;
+    if (tabBtn.hidden === !!va) {
+      tabBtn.hidden = !va;
+      if (!va && tabBtn.classList.contains('active')) this.showTab('home');
+    }
+    this.syncLayoutFields(pf);
+    $('hl-bar').style.background = '#' + ({ yellow: 'FFFF00', green: '00FF00', cyan: '00FFFF', magenta: 'FF00FF', blue: '0000FF', red: 'FF0000', darkBlue: '000080', darkCyan: '008080', darkGreen: '008000', darkMagenta: '800080', darkRed: '800000', darkYellow: '808000', darkGray: '808080', lightGray: 'C0C0C0', black: '000000' } as Record<string, string>)[this.lastHighlight];
     $('sb-mode').textContent = cell ? '표' : this.editor.collapsed() ? '입력' : '선택';
     this.markOutline(st?.pi ?? -1);
   }
 
+  private syncLayoutFields(pf: ParaFmt | null) {
+    const set = (id: string, v: number | undefined, k: number) => { const e = $<HTMLInputElement>(id); if (document.activeElement !== e) e.value = pf ? String(+((v ?? 0) / k).toFixed(2)) : ''; };
+    set('lay-left', pf?.left, TWIP_PER_CM);
+    set('lay-right', pf?.right, TWIP_PER_CM);
+    set('lay-before', pf?.before, 20);
+    set('lay-after', pf?.after, 20);
+  }
+
+  showTab(tab: string) {
+    document.querySelectorAll<HTMLElement>('.rb-tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
+    document.querySelectorAll<HTMLElement>('.rb-panel').forEach((p) => p.classList.toggle('active', p.dataset.panel === tab));
+    if (!this.showRibbon) this.cmd.run('view:toggle-ribbon');
+  }
+
+  /** Style gallery in the Home tab: each card previews its style. */
   private buildStyleList(extra?: string) {
     const doc = this.doc;
-    const sel = $<HTMLSelectElement>('para-style');
-    if (!doc) { sel.innerHTML = ''; return; }
+    const gal = $('style-gallery');
+    gal.innerHTML = '';
+    if (!doc) return;
     const used = new Set(doc.paragraphs().map((p) => doc.pStyleOf(p)).filter((s): s is string => !!s));
     if (extra) used.add(extra);
     if (doc.styles.defaultPara) used.add(doc.styles.defaultPara);
@@ -228,8 +267,31 @@ export class App {
     // Offer the headings even when the document has no definition yet (added on first use).
     const ids = new Set(list.map((s) => s.id));
     const extraBuiltins = ['Heading1', 'Heading2', 'Heading3', 'Title'].filter((i) => !ids.has(i) && ![...doc.styles.styles.values()].some((s) => s.name.toLowerCase() === (i === 'Title' ? 'title' : 'heading ' + i.slice(-1))));
-    sel.innerHTML = list.map((s) => `<option value="${s.id}">${styleLabel(s)}</option>`).join('') +
-      extraBuiltins.map((i) => `<option value="${i}">${i === 'Title' ? '제목' : '제목 ' + i.slice(-1)}</option>`).join('');
+    const cards: [string, string][] = [...list.map((s) => [s.id, styleLabel(s)] as [string, string]), ...extraBuiltins.map((i) => [i, i === 'Title' ? '제목' : '제목 ' + i.slice(-1)] as [string, string])];
+    const order = (id: string) => { const i = [doc.styles.defaultPara, 'NoSpacing', 'Heading1', 'Heading2', 'Heading3', 'Title', 'Subtitle'].indexOf(id); return i < 0 ? 99 : i; };
+    cards.sort((a, b) => order(a[0]) - order(b[0]));
+    for (const [id, label] of cards) {
+      const b = document.createElement('button');
+      b.className = 'style-card';
+      b.dataset.style = id;
+      b.title = label;
+      const prev = document.createElement('span');
+      prev.className = 'style-prev';
+      prev.textContent = '가나다Aa';
+      const f = doc.styles.style(id) ? doc.styles.styleRunFmt(id, null) : { sz: id === 'Title' ? 56 : id === 'Heading1' ? 32 : 26, color: '2F5496' } as RunFmt;
+      prev.style.fontFamily = fontStack(f);
+      prev.style.fontSize = Math.min(15, Math.max(10, (f.sz ?? 20) / 2 * 0.55 + 4)) + 'pt';
+      prev.style.fontWeight = f.b ? 'bold' : 'normal';
+      prev.style.fontStyle = f.i ? 'italic' : 'normal';
+      prev.style.color = f.color && f.color !== 'auto' ? '#' + f.color : '#000';
+      const name = document.createElement('span');
+      name.className = 'style-name';
+      name.textContent = label;
+      b.append(prev, name);
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      b.addEventListener('click', () => this.applyStyle(id));
+      gal.appendChild(b);
+    }
   }
 
   syncRulers() {
@@ -381,7 +443,7 @@ export class App {
     toast('저장했습니다');
   }
 
-  private findDialog() {
+  private findDialog(replace = false) {
     this.editor.commit();
     const body = html(`<div class="form" style="grid-template-columns:auto 1fr">
       <label>찾을 내용</label><input type="text" name="f">
@@ -391,6 +453,7 @@ export class App {
     const q = (n: string) => body.querySelector(`[name="${n}"]`) as HTMLInputElement;
     const sel = window.getSelection()?.toString();
     if (sel && !sel.includes('\n')) q('f').value = sel;
+    if (replace && sel) setTimeout(() => q('r').focus(), 0);
     let pos = -1;
     let current: { pi: number; off: number; len: number } | null = null;
     const result = body.querySelector('#find-result')!;
@@ -403,7 +466,7 @@ export class App {
       result.textContent = `${hits.length}개 중 ${pos + 1}번째`;
       return false;
     };
-    dialog('찾기 / 바꾸기', body, [
+    dialog(replace ? '바꾸기' : '찾기 및 바꾸기', body, [
       { label: '다음 찾기', primary: true, action: findNext },
       {
         label: '바꾸기', action: () => {
@@ -444,7 +507,7 @@ export class App {
     c.register('file:save-as', { run: () => this.save(true), enabled: this.hasDoc }, 'ctrl+shift+s');
     c.register('file:print', { run: () => { ed.commit(); printDocument(ed); }, enabled: this.hasDoc }, 'ctrl+p');
     c.register('file:info', { run: () => this.infoDialog(), enabled: this.hasDoc });
-    c.register('file:about', () => { dialog('제품 정보', html(`<div style="line-height:1.7"><b>Oword</b> 0.1.0<br>DOCX 문서 편집기<br><span style="color:#5c6370;font-size:12px">Opptx(PPTX 편집기)와 같은 구조 — 문서 엔진 · 렌더러 · 명령 기반 UI · 데스크톱 셸 — 로 만든 Word 문서 편집기입니다. 이 구조는 HOP(HWP 편집기, MIT)을 참고했습니다.<br>MIT License · Copyright (c) 2026 moonlightpark<br>서드파티 라이선스: THIRD_PARTY_NOTICES.md<br>Microsoft와 관계없음. Microsoft Word는 Microsoft Corporation의 상표입니다.</span></div>`), [{ label: '확인', primary: true }]); });
+    c.register('file:about', () => { dialog('제품 정보', html(`<div style="line-height:1.7"><b>Oword</b> 0.2.0<br>DOCX 문서 편집기<br><span style="color:#5c6370;font-size:12px">Opptx(PPTX 편집기)와 같은 구조 — 문서 엔진 · 렌더러 · 명령 기반 UI · 데스크톱 셸 — 로 만든 Word 문서 편집기입니다. 이 구조는 HOP(HWP 편집기, MIT)을 참고했습니다.<br>MIT License · Copyright (c) 2026 moonlightpark<br>서드파티 라이선스: THIRD_PARTY_NOTICES.md<br>Microsoft와 관계없음. Microsoft Word는 Microsoft Corporation의 상표입니다.</span></div>`), [{ label: '확인', primary: true }]); });
     // edit
     c.register('edit:undo', {
       run: () => { ed.commit(); const sel = d().undo() as Range | null; ed.render(); if (sel) ed.setRange(sel); this.buildStyleList(); this.queueSync(); },
@@ -467,7 +530,16 @@ export class App {
       enabled: this.hasDoc,
     }, 'ctrl+v');
     c.register('edit:select-all', { run: () => { ed.focus(); document.execCommand('selectAll'); }, enabled: this.hasDoc }, 'ctrl+a');
-    c.register('edit:find', { run: () => this.findDialog(), enabled: this.hasDoc }, 'ctrl+f', 'ctrl+h');
+    c.register('edit:find', { run: () => this.findDialog(), enabled: this.hasDoc }, 'ctrl+f');
+    c.register('edit:replace', { run: () => this.findDialog(true), enabled: this.hasDoc }, 'ctrl+h');
+    c.register('edit:paste-text', {
+      run: async () => {
+        const text = await navigator.clipboard?.readText?.().catch(() => '') ?? this.clipboard?.text ?? '';
+        if (text) this.structural((pos) => d().insertText(pos, text, '텍스트만 붙여넣기'));
+      },
+      enabled: this.hasDoc,
+    }, 'ctrl+shift+v');
+    c.register('edit:clear-content', { run: () => { ed.focus(); document.execCommand('delete'); }, enabled: () => !!this.doc && !ed.collapsed() });
     // view
     c.register('view:zoom-in', { run: () => this.stepZoom(1), enabled: this.hasDoc });
     c.register('view:zoom-out', { run: () => this.stepZoom(-1), enabled: this.hasDoc });
@@ -478,7 +550,7 @@ export class App {
     c.register('view:toggle-outline', { run: () => { this.showOutline = !this.showOutline; $('outline-panel').classList.toggle('hidden', !this.showOutline); if (this.fit) this.setZoom(this.fitZoom(this.fit), this.fit); }, checked: () => this.showOutline });
     c.register('view:toggle-marks', { run: () => { ed.showMarks = !ed.showMarks; ed.paginate(); $('tb-marks').classList.toggle('active', ed.showMarks); }, checked: () => ed.showMarks }, 'ctrl+shift+8');
     // insert
-    c.register('insert:table', { run: () => tablePopover($('tb-table'), (r, col) => this.structural((pos) => d().insertTable(pos, r, col))), enabled: this.hasDoc });
+    c.register('insert:table', { run: () => tablePopover(anchor('tb-table'), (r, col) => this.structural((pos) => d().insertTable(pos, r, col))), enabled: this.hasDoc });
     c.register('insert:image', {
       run: async () => { const f = await pickImage($<HTMLInputElement>('image-input')); if (f) await this.insertImageFile(f, f.name); },
       enabled: this.hasDoc,
@@ -493,8 +565,8 @@ export class App {
     c.register('format:subscript', { run: () => this.toggleVert('subscript'), enabled: this.hasDoc }, 'ctrl+=');
     c.register('format:grow', { run: () => this.stepSize(1), enabled: this.hasDoc }, 'ctrl+]');
     c.register('format:shrink', { run: () => this.stepSize(-1), enabled: this.hasDoc }, 'ctrl+[');
-    c.register('format:text-color', { run: () => colorPopover($('btn-text-color'), { allowNone: '자동' }, (hex) => { if (hex) { this.lastTextColor = hex; $('color-bar').style.background = '#' + hex; } this.runProps({ color: hex }, '글자 색'); }), enabled: this.hasDoc });
-    c.register('format:highlight', { run: () => highlightPopover($('btn-highlight'), (name) => { if (name) this.lastHighlight = name; this.runProps({ highlight: name }, '형광펜'); }), enabled: this.hasDoc });
+    c.register('format:text-color', { run: () => colorPopover(anchor('btn-text-color'), { allowNone: '자동' }, (hex) => { if (hex) { this.lastTextColor = hex; $('color-bar').style.background = '#' + hex; } this.runProps({ color: hex }, '글자 색'); }), enabled: this.hasDoc });
+    c.register('format:highlight', { run: () => highlightPopover(anchor('btn-highlight'), (name) => { if (name) this.lastHighlight = name; this.runProps({ highlight: name }, '형광펜'); }), enabled: this.hasDoc });
     c.register('format:clear', {
       run: () => {
         ed.commit();
@@ -519,6 +591,7 @@ export class App {
     for (const [v, key] of [['1', 'ctrl+1'], ['1.15', ''], ['1.5', 'ctrl+5'], ['2', 'ctrl+2'], ['2.5', ''], ['3', '']]) {
       c.register(`format:line-${v}`, { run: () => this.para((pis) => d().applyParaProps(pis, { line: Math.round(Number(v) * 240), lineRule: 'auto' }, '줄 간격')), enabled: this.hasDoc }, ...(key ? [key] : []));
     }
+    c.register('format:paragraph-dialog-alias', { run: () => this.cmd.run('format:paragraph') }, 'ctrl+alt+m');
     c.register('format:paragraph', {
       run: () => {
         ed.commit();
@@ -566,6 +639,118 @@ export class App {
         checked: () => { const r = ed.getRange(); return !!r && !!this.doc && d().cellVAlign(r.start.pi) === v; },
       });
     }
+    // Word-style additions: views, insert, font dialog, case, review, layout, table alignment
+    c.register('view:print-layout', { run: () => {}, checked: () => true });
+    c.register('view:toggle-ribbon', { run: () => { this.showRibbon = !this.showRibbon; $('ribbon').classList.toggle('collapsed', !this.showRibbon); if (this.fit) this.setZoom(this.fitZoom(this.fit), this.fit); }, checked: () => this.showRibbon }, 'ctrl+alt+r');
+    c.register('view:gridlines', { run: () => { this.showGridlines = !this.showGridlines; ed.root.classList.toggle('no-gridlines', !this.showGridlines); }, checked: () => this.showGridlines });
+    c.register('insert:line-break', { run: () => this.structural((pos) => d().insertLineBreak(pos)), enabled: this.hasDoc });
+    c.register('insert:date', { run: () => { ed.rememberSelection(); dateDialog((t) => this.structural((pos) => d().insertText(pos, t, '날짜 및 시간'))); }, enabled: this.hasDoc });
+    c.register('insert:symbol', { run: () => { ed.rememberSelection(); symbolPopover(anchor('tb-symbol'), (ch) => this.structural((pos) => d().insertText(pos, ch, '기호'))); }, enabled: this.hasDoc });
+    c.register('insert:hyperlink', {
+      run: () => {
+        ed.commit();
+        const r = ed.getRange();
+        if (!r) return;
+        const sel = window.getSelection()?.toString() ?? '';
+        const bookmarks = Array.from(d().body.getElementsByTagNameNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'bookmarkStart')).map((b) => b.getAttributeNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'name') ?? '').filter((n) => n && n !== '_GoBack');
+        hyperlinkDialog(sel.includes('\n') ? '' : sel, bookmarks, (url, text) => {
+          const next = d().insertHyperlink(r, url, text);
+          ed.render();
+          ed.setRange({ start: next, end: next });
+        });
+      },
+      enabled: this.hasDoc,
+    }, 'ctrl+k');
+    c.register('format:font', {
+      run: () => {
+        ed.commit();
+        const r = ed.getRange();
+        const f = this.caretFmt()?.fmt;
+        if (!r || !f) return;
+        fontDialog(f, FONTS, (v) => {
+          ed.setRange(r, false);
+          this.runProps({ ...v, sz: v.sz, u: v.u === 'none' ? false : v.u }, '글꼴');
+        });
+      },
+      enabled: this.hasDoc,
+    }, 'ctrl+d');
+    for (const mode of ['upper', 'lower', 'title', 'sentence'] as const) {
+      c.register(`format:case-${mode}`, {
+        run: () => {
+          ed.commit();
+          const r = ed.getRange();
+          if (!r || comparePos(r.start, r.end) === 0) { this.message('바꿀 글자를 먼저 선택하세요'); return; }
+          d().changeCase(r, mode);
+          const n = Math.abs(r.end.pi - r.start.pi) + 1;
+          ed.refresh(Math.min(r.start.pi, r.end.pi), n, n);
+          ed.setRange(r, false);
+        },
+        enabled: this.hasDoc,
+      });
+    }
+    for (const accept of [true, false]) {
+      c.register(`review:${accept ? 'accept' : 'reject'}-all`, {
+        run: () => {
+          ed.commit();
+          const n = d().revisionCount();
+          if (!n) { toast('변경 내용이 없습니다'); return; }
+          d().resolveRevisions(accept);
+          ed.render();
+          toast(`변경 내용 ${n}개를 ${accept ? '적용' : '거부'}했습니다`);
+        },
+        enabled: this.hasDoc,
+      });
+    }
+    const pageMenu = (at: string, items: [string, () => void][]) => menuPopover(anchor(at), items.map(([label, f]) => ({ label, action: () => { ed.commit(); f(); ed.render(); if (this.fit) this.setZoom(this.fitZoom(this.fit), this.fit); this.syncRulers(); } })));
+    const cm = TWIP_PER_CM;
+    c.register('layout:margins', {
+      run: () => pageMenu('tb-margins', [
+        ['보통 (위아래 2.54, 좌우 2.54 cm)', () => d().setPageSetup({ ...d().pageSetup(), top: 1440, bottom: 1440, left: 1440, right: 1440 })],
+        ['좁게 (1.27 cm)', () => d().setPageSetup({ ...d().pageSetup(), top: 720, bottom: 720, left: 720, right: 720 })],
+        ['보통 (한국 기본: 위 3, 아래 2.5, 좌우 3 cm)', () => d().setPageSetup({ ...d().pageSetup(), top: 3 * cm, bottom: 2.5 * cm, left: 3 * cm, right: 3 * cm })],
+        ['넓게 (위아래 2.54, 좌우 5.08 cm)', () => d().setPageSetup({ ...d().pageSetup(), top: 1440, bottom: 1440, left: 2880, right: 2880 })],
+        ['사용자 지정 여백…', () => this.cmd.run('page:setup')],
+      ]),
+      enabled: this.hasDoc,
+    });
+    c.register('layout:orientation', {
+      run: () => pageMenu('tb-orient', [
+        ['세로', () => { const ps = d().pageSetup(); if (ps.orient === 'landscape') d().setPageSetup({ ...ps, orient: 'portrait', w: Math.min(ps.w, ps.h), h: Math.max(ps.w, ps.h) }); }],
+        ['가로', () => { const ps = d().pageSetup(); if (ps.orient !== 'landscape') d().setPageSetup({ ...ps, orient: 'landscape', w: Math.max(ps.w, ps.h), h: Math.min(ps.w, ps.h) }); }],
+      ]),
+      enabled: this.hasDoc,
+    });
+    c.register('layout:size', {
+      run: () => pageMenu('tb-size', ([['A4', 210, 297], ['A3', 297, 420], ['A5', 148, 210], ['B5 (JIS)', 182, 257], ['Letter', 215.9, 279.4], ['Legal', 215.9, 355.6]] as [string, number, number][]).map(([n, w, h]) => [
+        `${n} (${w} × ${h} mm)`, () => { const ps = d().pageSetup(); const [a, b] = [w * cm / 10, h * cm / 10]; d().setPageSetup({ ...ps, w: ps.orient === 'landscape' ? b : a, h: ps.orient === 'landscape' ? a : b }); },
+      ] as [string, () => void]).concat([['기타 용지 크기…', () => this.cmd.run('page:setup')]])),
+      enabled: this.hasDoc,
+    });
+    c.register('table:delete-menu', {
+      run: () => menuPopover(anchor('tb-tdelete'), [
+        { label: '열 삭제', action: () => this.cmd.run('table:del-col') },
+        { label: '행 삭제', action: () => this.cmd.run('table:del-row') },
+        { label: '표 삭제', action: () => this.cmd.run('table:del-table') },
+      ]),
+      enabled: this.inTable,
+    });
+    for (const v of ['top', 'center', 'bottom'] as const) {
+      for (const h of ['left', 'center', 'right'] as const) {
+        c.register(`table:align-${v}-${h}`, {
+          run: () => {
+            ed.commit();
+            const r = ed.getRange();
+            if (!r) return;
+            d().alignCells(d().paraRange(r), v, h);
+            ed.render();
+            ed.setRange(r, false);
+            this.queueSync();
+          },
+          enabled: this.inTable,
+        });
+      }
+    }
+    c.register('style:Title', { run: () => this.applyStyle('Title'), enabled: this.hasDoc });
     // tools
     c.register('tool:stats', { run: () => this.statsDialog(), enabled: this.hasDoc });
     c.register('tool:shortcuts', () => {
@@ -638,7 +823,8 @@ export class App {
         if ([...menus].some((x) => x.classList.contains('open')) && !m.classList.contains('open')) { closeMenus(); refreshMenu(m); m.classList.add('open'); }
       });
     });
-    document.addEventListener('mousedown', (e) => { if (!(e.target as HTMLElement).closest('.menu-item')) closeMenus(); });
+    document.addEventListener('mousedown', (e) => { if (!(e.target as Element).closest?.('.menu-item')) closeMenus(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenus(); });
 
     // Any [data-cmd] element runs its command. mousedown is suppressed to keep the text caret.
     document.querySelectorAll<HTMLElement>('[data-cmd]').forEach((el) => {
@@ -648,8 +834,8 @@ export class App {
 
     // Style bar inputs keep the document selection while they have focus.
     const fn = $<HTMLInputElement>('font-name'), fs = $<HTMLInputElement>('font-size');
-    const styleSel = $<HTMLSelectElement>('para-style'), lineSel = $<HTMLSelectElement>('line-spacing');
-    for (const inp of [fn, fs, styleSel, lineSel]) inp.addEventListener('mousedown', () => this.editor.rememberSelection());
+    const lineSel = $<HTMLSelectElement>('line-spacing');
+    for (const inp of [fn, fs, lineSel]) inp.addEventListener('mousedown', () => this.editor.rememberSelection());
     for (const inp of [fn, fs]) inp.addEventListener('focus', () => inp.select());
     const restore = () => { const r = this.editor.getRange(); this.editor.setRange(r, false); };
     fn.addEventListener('change', () => { const v = fn.value.trim(); if (v) { restore(); this.runProps({ font: v }, '글꼴'); } });
@@ -661,7 +847,6 @@ export class App {
       $(id).addEventListener('mousedown', (e) => e.preventDefault());
       $(id).addEventListener('click', () => this.stepSize(dir));
     }
-    styleSel.addEventListener('change', () => { restore(); this.applyStyle(styleSel.value); });
     lineSel.addEventListener('change', () => { if (lineSel.value) { restore(); this.cmd.run(`format:line-${Number(lineSel.value)}`); } });
 
     const splitButton = (id: string, apply: () => void, open: () => void) => {
@@ -674,8 +859,45 @@ export class App {
       });
       b.addEventListener('contextmenu', (e) => { e.preventDefault(); open(); });
     };
-    splitButton('btn-text-color', () => this.runProps({ color: this.lastTextColor }, '글자 색'), () => this.cmd.run('format:text-color'));
-    splitButton('btn-highlight', () => this.runProps({ highlight: this.lastHighlight }, '형광펜'), () => this.cmd.run('format:highlight'));
+    splitButton('btn-text-color', () => this.runProps({ color: this.lastTextColor }, '글꼴 색'), () => this.cmd.run('format:text-color'));
+    splitButton('btn-highlight', () => this.runProps({ highlight: this.lastHighlight }, '텍스트 강조 색'), () => this.cmd.run('format:highlight'));
+
+    // Ribbon: tabs, collapse on double-click (as in Word), checkboxes, case menu, layout fields.
+    document.querySelectorAll<HTMLElement>('.rb-tab').forEach((t) => {
+      t.addEventListener('mousedown', (e) => e.preventDefault());
+      t.addEventListener('click', () => this.showTab(t.dataset.tab!));
+      t.addEventListener('dblclick', () => this.cmd.run('view:toggle-ribbon'));
+    });
+    document.querySelectorAll<HTMLInputElement>('[data-check]').forEach((cb) => {
+      cb.addEventListener('mousedown', (e) => e.preventDefault());
+      cb.addEventListener('change', () => { this.cmd.run(cb.dataset.check!); this.syncRibbon(); });
+    });
+    $('btn-case').addEventListener('mousedown', (e) => { e.preventDefault(); this.editor.rememberSelection(); });
+    $('btn-case').addEventListener('click', () => menuPopover($('btn-case'), [
+      { label: '문장의 첫 글자를 대문자로', action: () => this.cmd.run('format:case-sentence') },
+      { label: '모두 소문자로', action: () => this.cmd.run('format:case-lower') },
+      { label: '모두 대문자로', action: () => this.cmd.run('format:case-upper') },
+      { label: '각 단어의 첫 글자를 대문자로', action: () => this.cmd.run('format:case-title') },
+    ]));
+    for (const [id, key, k] of [['lay-left', 'left', TWIP_PER_CM], ['lay-right', 'right', TWIP_PER_CM], ['lay-before', 'before', 20], ['lay-after', 'after', 20]] as const) {
+      const inp = $<HTMLInputElement>(id);
+      inp.addEventListener('mousedown', () => this.editor.rememberSelection());
+      inp.addEventListener('change', () => {
+        const v = Math.max(0, Number(inp.value) || 0) * k;
+        restore();
+        this.para((pis) => this.doc!.applyParaProps(pis, { [key]: Math.round(v) }, '단락'));
+      });
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+    }
+    const zs = $<HTMLInputElement>('zoom-slider');
+    zs.addEventListener('input', () => this.setZoom(Number(zs.value) / 100));
+    // Shortcut labels in Mac notation (⌘ ⇧ ⌥) on macOS, like Word.app.
+    if (/Mac|iPhone|iPad/.test(navigator.platform)) {
+      document.querySelectorAll<HTMLElement>('.md-shortcut').forEach((e) => {
+        e.textContent = (e.textContent ?? '').replace(/Ctrl\+/g, '⌘').replace(/Shift\+/g, '⇧').replace(/Alt\+/g, '⌥').replace(/Enter/, '↩').replace(/Delete/, '⌫');
+      });
+      document.querySelectorAll<HTMLElement>('[title]').forEach((e) => { e.title = e.title.replace(/Ctrl\+/g, '⌘').replace(/Shift\+/g, '⇧').replace(/Alt\+/g, '⌥'); });
+    }
 
     // Keyboard.
     window.addEventListener('keydown', (e) => this.onKey(e));
@@ -689,29 +911,34 @@ export class App {
       const inTable = (e.target as HTMLElement).closest('td');
       e.preventDefault();
       const run = (id: string) => () => this.cmd.run(id);
+      const mac = /Mac/.test(navigator.platform);
+      const k = (s: string) => mac ? s.replace(/Ctrl\+/g, '⌘').replace(/Shift\+/g, '⇧').replace(/Alt\+/g, '⌥') : s;
       const items = [
-        { label: '오려두기', shortcut: 'Ctrl+X', disabled: this.editor.collapsed(), action: run('edit:cut') },
-        { label: '복사하기', shortcut: 'Ctrl+C', disabled: this.editor.collapsed(), action: run('edit:copy') },
-        { label: '붙이기', shortcut: 'Ctrl+V', action: run('edit:paste') },
+        { label: '잘라내기', shortcut: k('Ctrl+X'), disabled: this.editor.collapsed(), action: run('edit:cut') },
+        { label: '복사', shortcut: k('Ctrl+C'), disabled: this.editor.collapsed(), action: run('edit:copy') },
+        { label: '붙여넣기', shortcut: k('Ctrl+V'), action: run('edit:paste') },
         { sep: true },
-        { label: '문단 모양…', shortcut: 'Ctrl+Shift+P', action: run('format:paragraph') },
-        { label: '글머리표', action: run('format:bullet') },
-        { label: '문단 번호', action: run('format:numbering') },
+        { label: '글꼴…', shortcut: k('Ctrl+D'), action: run('format:font') },
+        { label: '단락…', shortcut: k('Ctrl+Alt+M'), action: run('format:paragraph') },
+        { label: '글머리 기호', action: run('format:bullet') },
+        { label: '번호 매기기', action: run('format:numbering') },
+        { sep: true },
+        { label: '하이퍼링크…', shortcut: k('Ctrl+K'), action: run('insert:hyperlink') },
       ];
       if (inTable) items.push(
         { sep: true },
-        { label: '위에 줄 넣기', action: run('table:row-above') },
-        { label: '아래에 줄 넣기', action: run('table:row-below') },
-        { label: '왼쪽에 칸 넣기', action: run('table:col-left') },
-        { label: '오른쪽에 칸 넣기', action: run('table:col-right') },
+        { label: '위에 행 삽입', action: run('table:row-above') },
+        { label: '아래에 행 삽입', action: run('table:row-below') },
+        { label: '왼쪽에 열 삽입', action: run('table:col-left') },
+        { label: '오른쪽에 열 삽입', action: run('table:col-right') },
         { sep: true },
-        { label: '줄 지우기', action: run('table:del-row') },
-        { label: '칸 지우기', action: run('table:del-col') },
-        { label: '표 지우기', action: run('table:del-table') },
+        { label: '행 삭제', action: run('table:del-row') },
+        { label: '열 삭제', action: run('table:del-col') },
+        { label: '표 삭제', action: run('table:del-table') },
         { sep: true },
-        { label: '셀 위쪽 정렬', action: run('table:valign-top') },
-        { label: '셀 가운데 정렬', action: run('table:valign-center') },
-        { label: '셀 아래쪽 정렬', action: run('table:valign-bottom') },
+        { label: '셀 맞춤: 위쪽', action: run('table:valign-top') },
+        { label: '셀 맞춤: 가운데', action: run('table:valign-center') },
+        { label: '셀 맞춤: 아래쪽', action: run('table:valign-bottom') },
       );
       contextMenu(e.clientX, e.clientY, items as Parameters<typeof contextMenu>[2]);
     });

@@ -666,7 +666,7 @@ export class DocEditor {
         delta = Math.max(-rowH + 8 * this.zoom, ev.clientY - start);
         guide.style.top = edge.pos + delta + 'px';
       }
-      this.hooks.status(edge.kind === 'col' ? `칸 너비 ${(delta / pxPerTw / 566.929 >= 0 ? '+' : '')}${(delta / pxPerTw / 566.929).toFixed(2)} cm` : `줄 높이 ${((rowH + delta) / this.zoom * 0.75 / 28.3465).toFixed(2)} cm`);
+      this.hooks.status(edge.kind === 'col' ? `열 너비 ${(delta / pxPerTw / 566.929 >= 0 ? '+' : '')}${(delta / pxPerTw / 566.929).toFixed(2)} cm` : `행 높이 ${((rowH + delta) / this.zoom * 0.75 / 28.3465).toFixed(2)} cm`);
     };
     const up = () => {
       window.removeEventListener('mousemove', move);

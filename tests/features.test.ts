@@ -375,3 +375,75 @@ describe('table cell alignment', () => {
     expect(re.cellVAlign(find(re, '비용'))).toBe('center');
   });
 });
+
+describe('Word-style menu commands', () => {
+  it('changes case without touching formatting', async () => {
+    const doc = await load();
+    const pi = find(doc, 'All Caps');
+    const p = doc.para(pi)!;
+    const t = doc.textOf(p);
+    const s = t.indexOf('All Caps'), e = t.indexOf('Small Caps') + 'Small Caps'.length;
+    doc.changeCase({ start: { pi, off: s }, end: { pi, off: e } }, 'upper');
+    expect(doc.textOf(doc.para(pi)!).slice(s, e)).toBe('ALL CAPS, SMALL CAPS');
+    doc.changeCase({ start: { pi, off: s }, end: { pi, off: e } }, 'lower');
+    expect(doc.textOf(doc.para(pi)!).slice(s, e)).toBe('all caps, small caps');
+    doc.changeCase({ start: { pi, off: s }, end: { pi, off: e } }, 'title');
+    expect(doc.textOf(doc.para(pi)!).slice(s, e)).toBe('All Caps, Small Caps');
+    const q = doc.para(pi)!;
+    expect(doc.runFmt(q, doc.items(q).find((x) => x.text === 'Small Caps')!.rPr).smallCaps).toBe(true);
+  });
+
+  it('inserts hyperlinks (selection, empty caret, bookmark) that survive a save', async () => {
+    const doc = await load();
+    const pi = find(doc, '왼쪽 정렬 문단');
+    const before = doc.body.getElementsByTagNameNS(W, 'hyperlink').length;
+    doc.insertHyperlink({ start: { pi, off: 0 }, end: { pi, off: 2 } }, 'https://example.com');
+    const end = doc.insertHyperlink({ start: { pi, off: 5 }, end: { pi, off: 5 } }, 'https://oword.dev', '링크 글');
+    doc.insertHyperlink({ start: { pi, off: end.off }, end: { pi, off: end.off } }, '#_Toc3', '표로');
+    expect(doc.textOf(doc.para(pi)!).startsWith('왼쪽 정렬링크 글표로')).toBe(true);
+    const re = await reload(doc);
+    const links = Array.from(re.body.getElementsByTagNameNS(W, 'hyperlink'));
+    expect(links.length).toBe(before + 3);
+    const rid = (h: Element) => h.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+    const targets = links.map((h) => rid(h) ? re.pkg.rel(re.docPath, rid(h))!.target : '#' + h.getAttributeNS(W, 'anchor'));
+    expect(targets).toEqual(expect.arrayContaining(['https://example.com', 'https://oword.dev', '#_Toc3']));
+    const relsXml = new XMLSerializer().serializeToString(re.pkg.getXml('word/_rels/document.xml.rels')!);
+    expect(relsXml).toMatch(/Target="https:\/\/example.com" TargetMode="External"/);
+    const { root } = render(re);
+    expect(Array.from(root.querySelectorAll<HTMLElement>('a.w-hyperlink')).some((a) => a.dataset.href === 'https://example.com' && a.textContent === '왼쪽')).toBe(true);
+  });
+
+  it('inserts a line break', async () => {
+    const doc = await load();
+    const pi = find(doc, '왼쪽 정렬 문단');
+    doc.insertLineBreak({ pi, off: 2 });
+    expect(doc.textOf(doc.para(pi)!).startsWith('왼쪽\n 정렬')).toBe(true);
+    expect(doc.paragraphs().length).toBe((await load()).paragraphs().length);
+  });
+
+  it('accepts or rejects all tracked changes', async () => {
+    const a = await load();
+    expect(a.revisionCount()).toBe(2);
+    a.resolveRevisions(true);
+    expect(a.revisionCount()).toBe(0);
+    expect(a.textOf(a.para(find(a, '변경 내용 추적'))!)).toBe('변경 내용 추적: 삽입된 글자 /  끝.');
+    const r = await load();
+    r.resolveRevisions(false);
+    expect(r.textOf(r.para(find(r, '변경 내용 추적'))!)).toBe('변경 내용 추적:  / 삭제된 글자 끝.');
+    r.undo();
+    expect(r.revisionCount()).toBe(2);
+  });
+
+  it('aligns cells on both axes (3×3 grid) and sets separate Korean/Latin fonts', async () => {
+    const doc = await load();
+    const a = find(doc, '매출');
+    doc.alignCells([a], 'bottom', 'right');
+    expect(doc.cellVAlign(a)).toBe('bottom');
+    expect(doc.paraFmt(doc.para(a)!).jc).toBe('right');
+    expect(doc.cellParagraphs([a])).toEqual([a]);
+    const pi = find(doc, '왼쪽 정렬 문단');
+    doc.applyRunProps({ start: { pi, off: 0 }, end: { pi, off: 4 } }, { ascii: 'Georgia', ea: '바탕', dstrike: true, smallCaps: true, vanish: false });
+    const f = doc.fmtAt({ pi, off: 1 })!;
+    expect([f.ascii, f.ea, f.dstrike, f.smallCaps, f.strike]).toEqual(['Georgia', '바탕', true, true, undefined]);
+  });
+});

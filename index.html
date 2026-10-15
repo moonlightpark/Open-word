@@ -9,205 +9,433 @@
 </head>
 <body>
 <div id="studio-root">
-  <!-- 메뉴바 (HOP: #menu-bar / data-menu / data-cmd) -->
+  <!-- 메뉴 막대: Word for Mac과 같은 구성 (HOP: #menu-bar / data-menu / data-cmd) -->
   <div id="menu-bar">
     <div class="menu-item" data-menu="file">
       <span class="menu-title">파일</span>
       <div class="menu-dropdown">
         <div class="md-item" data-cmd="file:new"><span class="md-label">새 문서</span><span class="md-shortcut">Ctrl+N</span></div>
         <div class="md-item" data-cmd="file:open"><span class="md-label">열기…</span><span class="md-shortcut">Ctrl+O</span></div>
+        <div class="md-sep"></div>
         <div class="md-item" data-cmd="file:save"><span class="md-label">저장</span><span class="md-shortcut">Ctrl+S</span></div>
         <div class="md-item" data-cmd="file:save-as"><span class="md-label">다른 이름으로 저장…</span><span class="md-shortcut">Ctrl+Shift+S</span></div>
         <div class="md-sep"></div>
-        <div class="md-item" data-cmd="page:setup"><span class="md-label">쪽 설정…</span></div>
-        <div class="md-item" data-cmd="file:print"><span class="md-label">인쇄 / PDF 내보내기</span><span class="md-shortcut">Ctrl+P</span></div>
+        <div class="md-item" data-cmd="page:setup"><span class="md-label">페이지 설정…</span></div>
+        <div class="md-item" data-cmd="file:print"><span class="md-label">인쇄…</span><span class="md-shortcut">Ctrl+P</span></div>
         <div class="md-sep"></div>
-        <div class="md-item" data-cmd="file:info"><span class="md-label">문서 정보</span></div>
-        <div class="md-item" data-cmd="file:about"><span class="md-label">제품 정보</span></div>
+        <div class="md-item" data-cmd="file:info"><span class="md-label">속성…</span></div>
       </div>
     </div>
     <div class="menu-item" data-menu="edit">
       <span class="menu-title">편집</span>
       <div class="menu-dropdown">
-        <div class="md-item" data-cmd="edit:undo"><span class="md-label">되돌리기</span><span class="md-shortcut">Ctrl+Z</span></div>
-        <div class="md-item" data-cmd="edit:redo"><span class="md-label">다시 실행</span><span class="md-shortcut">Ctrl+Shift+Z</span></div>
+        <div class="md-item" data-cmd="edit:undo"><span class="md-label">실행 취소</span><span class="md-shortcut">Ctrl+Z</span></div>
+        <div class="md-item" data-cmd="edit:redo"><span class="md-label">다시 실행</span><span class="md-shortcut">Ctrl+Y</span></div>
         <div class="md-sep"></div>
-        <div class="md-item" data-cmd="edit:cut"><span class="md-label">오려두기</span><span class="md-shortcut">Ctrl+X</span></div>
-        <div class="md-item" data-cmd="edit:copy"><span class="md-label">복사하기</span><span class="md-shortcut">Ctrl+C</span></div>
-        <div class="md-item" data-cmd="edit:paste"><span class="md-label">붙이기</span><span class="md-shortcut">Ctrl+V</span></div>
+        <div class="md-item" data-cmd="edit:cut"><span class="md-label">잘라내기</span><span class="md-shortcut">Ctrl+X</span></div>
+        <div class="md-item" data-cmd="edit:copy"><span class="md-label">복사</span><span class="md-shortcut">Ctrl+C</span></div>
+        <div class="md-item" data-cmd="edit:paste"><span class="md-label">붙여넣기</span><span class="md-shortcut">Ctrl+V</span></div>
+        <div class="md-item" data-cmd="edit:paste-text"><span class="md-label">텍스트만 붙여넣기</span><span class="md-shortcut">Ctrl+Shift+V</span></div>
+        <div class="md-item has-sub"><span class="md-label">지우기</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown">
+            <div class="md-item" data-cmd="format:clear"><span class="md-label">서식 지우기</span></div>
+            <div class="md-item" data-cmd="edit:clear-content"><span class="md-label">내용 지우기</span><span class="md-shortcut">Delete</span></div>
+          </div>
+        </div>
         <div class="md-sep"></div>
         <div class="md-item" data-cmd="edit:select-all"><span class="md-label">모두 선택</span><span class="md-shortcut">Ctrl+A</span></div>
-        <div class="md-item" data-cmd="edit:find"><span class="md-label">찾기 / 바꾸기…</span><span class="md-shortcut">Ctrl+F</span></div>
+        <div class="md-sep"></div>
+        <div class="md-item has-sub"><span class="md-label">찾기</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown">
+            <div class="md-item" data-cmd="edit:find"><span class="md-label">찾기…</span><span class="md-shortcut">Ctrl+F</span></div>
+            <div class="md-item" data-cmd="edit:replace"><span class="md-label">바꾸기…</span><span class="md-shortcut">Ctrl+H</span></div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="menu-item" data-menu="view">
       <span class="menu-title">보기</span>
       <div class="menu-dropdown">
-        <div class="md-item" data-cmd="view:zoom-in"><span class="md-label">확대</span><span class="md-shortcut">Ctrl+휠</span></div>
-        <div class="md-item" data-cmd="view:zoom-out"><span class="md-label">축소</span></div>
-        <div class="md-item" data-cmd="view:zoom-width"><span class="md-check"></span><span class="md-label">쪽 너비에 맞춤</span></div>
-        <div class="md-item" data-cmd="view:zoom-page"><span class="md-check"></span><span class="md-label">쪽 전체 보기</span></div>
-        <div class="md-item" data-cmd="view:zoom-100"><span class="md-label">실제 크기 (100%)</span></div>
+        <div class="md-item checked" data-cmd="view:print-layout"><span class="md-check"></span><span class="md-label">인쇄 모양</span></div>
         <div class="md-sep"></div>
+        <div class="md-item" data-cmd="view:toggle-ribbon"><span class="md-check"></span><span class="md-label">리본</span><span class="md-shortcut">Ctrl+Alt+R</span></div>
         <div class="md-item" data-cmd="view:toggle-ruler"><span class="md-check"></span><span class="md-label">눈금자</span></div>
         <div class="md-item" data-cmd="view:toggle-outline"><span class="md-check"></span><span class="md-label">탐색 창</span></div>
-        <div class="md-item" data-cmd="view:toggle-marks"><span class="md-check"></span><span class="md-label">문단 부호</span><span class="md-shortcut">Ctrl+Shift+8</span></div>
+        <div class="md-item" data-cmd="view:toggle-marks"><span class="md-check"></span><span class="md-label">편집 기호 표시</span><span class="md-shortcut">Ctrl+Shift+8</span></div>
+        <div class="md-item" data-cmd="view:gridlines"><span class="md-check"></span><span class="md-label">표 눈금선</span></div>
+        <div class="md-sep"></div>
+        <div class="md-item has-sub"><span class="md-label">확대/축소</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown">
+            <div class="md-item" data-cmd="view:zoom-in"><span class="md-label">확대</span></div>
+            <div class="md-item" data-cmd="view:zoom-out"><span class="md-label">축소</span></div>
+            <div class="md-sep"></div>
+            <div class="md-item" data-cmd="view:zoom-100"><span class="md-label">100%</span></div>
+            <div class="md-item" data-cmd="view:zoom-width"><span class="md-check"></span><span class="md-label">페이지 너비</span></div>
+            <div class="md-item" data-cmd="view:zoom-page"><span class="md-check"></span><span class="md-label">한 페이지</span></div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="menu-item" data-menu="insert">
-      <span class="menu-title">입력</span>
+      <span class="menu-title">삽입</span>
       <div class="menu-dropdown">
-        <div class="md-item" data-cmd="insert:table"><span class="md-label">표…</span></div>
-        <div class="md-item" data-cmd="insert:image"><span class="md-label">그림…</span><span class="md-shortcut">Ctrl+Shift+I</span></div>
+        <div class="md-item has-sub"><span class="md-label">나누기</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown">
+            <div class="md-item" data-cmd="insert:page-break"><span class="md-label">페이지 나누기</span><span class="md-shortcut">Ctrl+Enter</span></div>
+            <div class="md-item" data-cmd="insert:line-break"><span class="md-label">줄 바꿈</span><span class="md-shortcut">Shift+Enter</span></div>
+          </div>
+        </div>
         <div class="md-sep"></div>
-        <div class="md-item" data-cmd="insert:page-break"><span class="md-label">쪽 나누기</span><span class="md-shortcut">Ctrl+Enter</span></div>
+        <div class="md-item" data-cmd="insert:date"><span class="md-label">날짜 및 시간…</span></div>
+        <div class="md-item" data-cmd="insert:symbol"><span class="md-label">기호…</span></div>
+        <div class="md-sep"></div>
+        <div class="md-item" data-cmd="insert:table"><span class="md-label">표…</span></div>
+        <div class="md-item has-sub"><span class="md-label">그림</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown">
+            <div class="md-item" data-cmd="insert:image"><span class="md-label">파일에서 그림…</span><span class="md-shortcut">Ctrl+Shift+I</span></div>
+          </div>
+        </div>
+        <div class="md-sep"></div>
+        <div class="md-item" data-cmd="insert:hyperlink"><span class="md-label">하이퍼링크…</span><span class="md-shortcut">Ctrl+K</span></div>
       </div>
     </div>
     <div class="menu-item" data-menu="format">
       <span class="menu-title">서식</span>
       <div class="menu-dropdown">
-        <div class="md-item" data-cmd="format:bold"><span class="md-label">진하게</span><span class="md-shortcut">Ctrl+B</span></div>
-        <div class="md-item" data-cmd="format:italic"><span class="md-label">기울임</span><span class="md-shortcut">Ctrl+I</span></div>
-        <div class="md-item" data-cmd="format:underline"><span class="md-label">밑줄</span><span class="md-shortcut">Ctrl+U</span></div>
-        <div class="md-item" data-cmd="format:strike"><span class="md-label">취소선</span><span class="md-shortcut">Ctrl+Shift+X</span></div>
-        <div class="md-item" data-cmd="format:superscript"><span class="md-label">위 첨자</span><span class="md-shortcut">Ctrl+Shift+=</span></div>
-        <div class="md-item" data-cmd="format:subscript"><span class="md-label">아래 첨자</span><span class="md-shortcut">Ctrl+=</span></div>
-        <div class="md-item" data-cmd="format:grow"><span class="md-label">글자 크게</span><span class="md-shortcut">Ctrl+]</span></div>
-        <div class="md-item" data-cmd="format:shrink"><span class="md-label">글자 작게</span><span class="md-shortcut">Ctrl+[</span></div>
-        <div class="md-item" data-cmd="format:text-color"><span class="md-label">글자 색…</span></div>
-        <div class="md-item" data-cmd="format:highlight"><span class="md-label">형광펜…</span></div>
-        <div class="md-item" data-cmd="format:clear"><span class="md-label">글자 서식 지우기</span></div>
+        <div class="md-item" data-cmd="format:font"><span class="md-label">글꼴…</span><span class="md-shortcut">Ctrl+D</span></div>
+        <div class="md-item" data-cmd="format:paragraph"><span class="md-label">단락…</span><span class="md-shortcut">Ctrl+Alt+M</span></div>
+        <div class="md-item has-sub"><span class="md-label">글머리 기호 및 번호 매기기</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown">
+            <div class="md-item" data-cmd="format:bullet"><span class="md-label">글머리 기호</span><span class="md-shortcut">Ctrl+Shift+L</span></div>
+            <div class="md-item" data-cmd="format:numbering"><span class="md-label">번호 매기기</span></div>
+            <div class="md-sep"></div>
+            <div class="md-item" data-cmd="format:indent"><span class="md-label">들여쓰기 늘리기</span><span class="md-shortcut">Ctrl+M</span></div>
+            <div class="md-item" data-cmd="format:outdent"><span class="md-label">들여쓰기 줄이기</span><span class="md-shortcut">Ctrl+Shift+M</span></div>
+          </div>
+        </div>
+        <div class="md-item has-sub"><span class="md-label">대/소문자 바꾸기</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown">
+            <div class="md-item" data-cmd="format:case-sentence"><span class="md-label">문장의 첫 글자를 대문자로</span></div>
+            <div class="md-item" data-cmd="format:case-lower"><span class="md-label">모두 소문자로</span></div>
+            <div class="md-item" data-cmd="format:case-upper"><span class="md-label">모두 대문자로</span></div>
+            <div class="md-item" data-cmd="format:case-title"><span class="md-label">각 단어의 첫 글자를 대문자로</span></div>
+          </div>
+        </div>
         <div class="md-sep"></div>
-        <div class="md-item" data-cmd="format:align-left"><span class="md-label">왼쪽 정렬</span><span class="md-shortcut">Ctrl+L</span></div>
-        <div class="md-item" data-cmd="format:align-center"><span class="md-label">가운데 정렬</span><span class="md-shortcut">Ctrl+E</span></div>
-        <div class="md-item" data-cmd="format:align-right"><span class="md-label">오른쪽 정렬</span><span class="md-shortcut">Ctrl+R</span></div>
-        <div class="md-item" data-cmd="format:align-justify"><span class="md-label">양쪽 정렬</span><span class="md-shortcut">Ctrl+J</span></div>
+        <div class="md-item has-sub"><span class="md-label">스타일</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown">
+            <div class="md-item" data-cmd="style:normal"><span class="md-label">표준</span><span class="md-shortcut">Ctrl+Shift+N</span></div>
+            <div class="md-item" data-cmd="style:Title"><span class="md-label">제목</span></div>
+            <div class="md-item" data-cmd="style:Heading1"><span class="md-label">제목 1</span><span class="md-shortcut">Ctrl+Alt+1</span></div>
+            <div class="md-item" data-cmd="style:Heading2"><span class="md-label">제목 2</span><span class="md-shortcut">Ctrl+Alt+2</span></div>
+            <div class="md-item" data-cmd="style:Heading3"><span class="md-label">제목 3</span><span class="md-shortcut">Ctrl+Alt+3</span></div>
+          </div>
+        </div>
         <div class="md-sep"></div>
-        <div class="md-item" data-cmd="format:bullet"><span class="md-label">글머리표</span><span class="md-shortcut">Ctrl+Shift+L</span></div>
-        <div class="md-item" data-cmd="format:numbering"><span class="md-label">문단 번호</span></div>
-        <div class="md-item" data-cmd="format:indent"><span class="md-label">들여쓰기</span><span class="md-shortcut">Ctrl+M</span></div>
-        <div class="md-item" data-cmd="format:outdent"><span class="md-label">내어쓰기</span><span class="md-shortcut">Ctrl+Shift+M</span></div>
-        <div class="md-sep"></div>
-        <div class="md-item" data-cmd="format:paragraph"><span class="md-label">문단 모양…</span><span class="md-shortcut">Ctrl+Shift+P</span></div>
-        <div class="md-item" data-cmd="style:normal"><span class="md-label">표준 스타일</span><span class="md-shortcut">Ctrl+Shift+N</span></div>
-        <div class="md-item" data-cmd="style:Heading1"><span class="md-label">제목 1</span><span class="md-shortcut">Ctrl+Alt+1</span></div>
-        <div class="md-item" data-cmd="style:Heading2"><span class="md-label">제목 2</span><span class="md-shortcut">Ctrl+Alt+2</span></div>
-        <div class="md-item" data-cmd="style:Heading3"><span class="md-label">제목 3</span><span class="md-shortcut">Ctrl+Alt+3</span></div>
-      </div>
-    </div>
-    <div class="menu-item" data-menu="page">
-      <span class="menu-title">쪽</span>
-      <div class="menu-dropdown">
-        <div class="md-item" data-cmd="page:setup"><span class="md-label">쪽 설정 (용지 · 여백)…</span></div>
-        <div class="md-item" data-cmd="insert:page-break"><span class="md-label">쪽 나누기</span><span class="md-shortcut">Ctrl+Enter</span></div>
-      </div>
-    </div>
-    <div class="menu-item" data-menu="table">
-      <span class="menu-title">표</span>
-      <div class="menu-dropdown">
-        <div class="md-item" data-cmd="insert:table"><span class="md-label">표 만들기…</span></div>
-        <div class="md-sep"></div>
-        <div class="md-item" data-cmd="table:row-above"><span class="md-label">위에 줄 넣기</span></div>
-        <div class="md-item" data-cmd="table:row-below"><span class="md-label">아래에 줄 넣기</span></div>
-        <div class="md-item" data-cmd="table:col-left"><span class="md-label">왼쪽에 칸 넣기</span></div>
-        <div class="md-item" data-cmd="table:col-right"><span class="md-label">오른쪽에 칸 넣기</span></div>
-        <div class="md-sep"></div>
-        <div class="md-item" data-cmd="table:del-row"><span class="md-label">줄 지우기</span></div>
-        <div class="md-item" data-cmd="table:del-col"><span class="md-label">칸 지우기</span></div>
-        <div class="md-item" data-cmd="table:del-table"><span class="md-label">표 지우기</span></div>
-        <div class="md-sep"></div>
-        <div class="md-item" data-cmd="table:valign-top"><span class="md-check"></span><span class="md-label">셀 위쪽 정렬</span></div>
-        <div class="md-item" data-cmd="table:valign-center"><span class="md-check"></span><span class="md-label">셀 가운데 정렬</span></div>
-        <div class="md-item" data-cmd="table:valign-bottom"><span class="md-check"></span><span class="md-label">셀 아래쪽 정렬</span></div>
-        <div class="md-sep"></div>
-        <div class="md-item md-hint"><span class="md-label">칸 너비·줄 높이: 표 테두리선을 끌어서 조절</span></div>
+        <div class="md-item" data-cmd="page:setup"><span class="md-label">문서…</span></div>
       </div>
     </div>
     <div class="menu-item" data-menu="tool">
       <span class="menu-title">도구</span>
       <div class="menu-dropdown">
-        <div class="md-item" data-cmd="edit:find"><span class="md-label">찾기 / 바꾸기…</span></div>
-        <div class="md-item" data-cmd="tool:stats"><span class="md-label">글자 수…</span></div>
-        <div class="md-item" data-cmd="tool:shortcuts"><span class="md-label">단축키 목록</span><span class="md-shortcut">F1</span></div>
+        <div class="md-item" data-cmd="tool:stats"><span class="md-label">단어 개수…</span></div>
+        <div class="md-sep"></div>
+        <div class="md-item has-sub"><span class="md-label">변경 내용 추적</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown">
+            <div class="md-item" data-cmd="review:accept-all"><span class="md-label">모든 변경 내용 적용</span></div>
+            <div class="md-item" data-cmd="review:reject-all"><span class="md-label">모든 변경 내용 거부</span></div>
+          </div>
+        </div>
+        <div class="md-sep"></div>
+        <div class="md-item" data-cmd="tool:shortcuts"><span class="md-label">바로 가기 키…</span><span class="md-shortcut">F1</span></div>
+      </div>
+    </div>
+    <div class="menu-item" data-menu="table">
+      <span class="menu-title">표</span>
+      <div class="menu-dropdown">
+        <div class="md-item has-sub"><span class="md-label">삽입</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown">
+            <div class="md-item" data-cmd="insert:table"><span class="md-label">표…</span></div>
+            <div class="md-sep"></div>
+            <div class="md-item" data-cmd="table:col-left"><span class="md-label">왼쪽에 열</span></div>
+            <div class="md-item" data-cmd="table:col-right"><span class="md-label">오른쪽에 열</span></div>
+            <div class="md-item" data-cmd="table:row-above"><span class="md-label">위에 행</span></div>
+            <div class="md-item" data-cmd="table:row-below"><span class="md-label">아래에 행</span></div>
+          </div>
+        </div>
+        <div class="md-item has-sub"><span class="md-label">삭제</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown">
+            <div class="md-item" data-cmd="table:del-table"><span class="md-label">표</span></div>
+            <div class="md-item" data-cmd="table:del-col"><span class="md-label">열</span></div>
+            <div class="md-item" data-cmd="table:del-row"><span class="md-label">행</span></div>
+          </div>
+        </div>
+        <div class="md-sep"></div>
+        <div class="md-item has-sub"><span class="md-label">셀 맞춤</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown">
+            <div class="md-item" data-cmd="table:valign-top"><span class="md-check"></span><span class="md-label">위쪽</span></div>
+            <div class="md-item" data-cmd="table:valign-center"><span class="md-check"></span><span class="md-label">가운데</span></div>
+            <div class="md-item" data-cmd="table:valign-bottom"><span class="md-check"></span><span class="md-label">아래쪽</span></div>
+          </div>
+        </div>
+        <div class="md-sep"></div>
+        <div class="md-item" data-cmd="view:gridlines"><span class="md-check"></span><span class="md-label">눈금선 보기</span></div>
+        <div class="md-item md-hint"><span class="md-label">열 너비·행 높이: 표 테두리선을 끌어서 조절</span></div>
+      </div>
+    </div>
+    <div class="menu-item" data-menu="help">
+      <span class="menu-title">도움말</span>
+      <div class="menu-dropdown">
+        <div class="md-item" data-cmd="tool:shortcuts"><span class="md-label">바로 가기 키</span><span class="md-shortcut">F1</span></div>
+        <div class="md-sep"></div>
+        <div class="md-item" data-cmd="file:about"><span class="md-label">Oword 정보</span></div>
       </div>
     </div>
   </div>
 
-  <!-- 아이콘 툴바 (HOP: #icon-toolbar .tb-group .tb-btn) -->
-  <div id="icon-toolbar">
-    <div class="tb-group">
-      <button class="tb-btn" data-cmd="file:new" title="새 문서 (Ctrl+N)"><span class="tb-icon" data-icon="new"></span><span class="tb-label">새 문서</span></button>
-      <button class="tb-btn" data-cmd="file:open" title="열기 (Ctrl+O)"><span class="tb-icon" data-icon="open"></span><span class="tb-label">열기</span></button>
-      <button class="tb-btn" data-cmd="file:save" title="저장 (Ctrl+S)"><span class="tb-icon" data-icon="save"></span><span class="tb-label">저장</span></button>
+  <!-- 리본: 빠른 실행 도구 모음 + 탭 (홈 · 삽입 · 레이아웃 · 검토 · 보기 · 표 레이아웃) -->
+  <div id="ribbon">
+    <div id="ribbon-tabs">
+      <div id="qat">
+        <button class="qat-btn" data-cmd="file:save" title="저장 (Ctrl+S)"><span class="tb-icon sm" data-icon="save"></span></button>
+        <button class="qat-btn" data-cmd="edit:undo" title="실행 취소 (Ctrl+Z)"><span class="tb-icon sm" data-icon="undo"></span></button>
+        <button class="qat-btn" data-cmd="edit:redo" title="다시 실행 (Ctrl+Y)"><span class="tb-icon sm" data-icon="redo"></span></button>
+        <button class="qat-btn" data-cmd="file:print" title="인쇄 (Ctrl+P)"><span class="tb-icon sm" data-icon="print"></span></button>
+      </div>
+      <button class="rb-tab active" data-tab="home">홈</button>
+      <button class="rb-tab" data-tab="insert">삽입</button>
+      <button class="rb-tab" data-tab="layout">레이아웃</button>
+      <button class="rb-tab" data-tab="review">검토</button>
+      <button class="rb-tab" data-tab="view">보기</button>
+      <button class="rb-tab rb-contextual" data-tab="table" hidden>표 레이아웃</button>
+      <span class="rb-spacer"></span>
+      <button class="rb-collapse" data-cmd="view:toggle-ribbon" title="리본 접기/펴기 (Ctrl+Alt+R)">⌃</button>
     </div>
-    <span class="tb-sep"></span>
-    <div class="tb-group">
-      <button class="tb-btn" data-cmd="edit:cut" title="오려두기 (Ctrl+X)"><span class="tb-icon" data-icon="cut"></span><span class="tb-label">오려<br>두기</span></button>
-      <button class="tb-btn" data-cmd="edit:copy" title="복사하기 (Ctrl+C)"><span class="tb-icon" data-icon="copy"></span><span class="tb-label">복사<br>하기</span></button>
-      <button class="tb-btn" data-cmd="edit:paste" title="붙이기 (Ctrl+V)"><span class="tb-icon" data-icon="paste"></span><span class="tb-label">붙이기</span></button>
-      <button class="tb-btn" data-cmd="edit:undo" title="되돌리기 (Ctrl+Z)"><span class="tb-icon" data-icon="undo"></span><span class="tb-label">되돌<br>리기</span></button>
-      <button class="tb-btn" data-cmd="edit:redo" title="다시 실행 (Ctrl+Shift+Z)"><span class="tb-icon" data-icon="redo"></span><span class="tb-label">다시<br>실행</span></button>
+    <div id="ribbon-body">
+      <!-- 홈 -->
+      <div class="rb-panel active" data-panel="home">
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" data-cmd="edit:paste" title="붙여넣기 (Ctrl+V)"><span class="tb-icon" data-icon="paste"></span><span>붙여넣기</span></button>
+            <div class="rb-col">
+              <button class="rb-small" data-cmd="edit:cut" title="잘라내기 (Ctrl+X)"><span class="tb-icon sm" data-icon="cut"></span>잘라내기</button>
+              <button class="rb-small" data-cmd="edit:copy" title="복사 (Ctrl+C)"><span class="tb-icon sm" data-icon="copy"></span>복사</button>
+              <button class="rb-small" data-cmd="format:clear" title="서식 지우기"><span class="tb-icon sm" data-icon="eraser"></span>서식 지우기</button>
+            </div>
+          </div>
+          <div class="rb-label">클립보드</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-col rb-gap">
+            <div class="rb-line">
+              <input id="font-name" class="sb-combo sb-font" list="font-list" title="글꼴" autocomplete="off">
+              <datalist id="font-list"></datalist>
+              <span class="sb-field">
+                <input id="font-size" class="sb-size" list="size-list" title="글꼴 크기 (pt)" autocomplete="off">
+                <datalist id="size-list"></datalist>
+              </span>
+              <button class="sb-btn" id="btn-size-up" title="글꼴 크기 크게 (Ctrl+])"><span class="grow">가<sup>▲</sup></span></button>
+              <button class="sb-btn" id="btn-size-down" title="글꼴 크기 작게 (Ctrl+[)"><span class="grow">가<sup>▼</sup></span></button>
+              <button class="sb-btn" id="btn-case" title="대/소문자 바꾸기">Aa</button>
+            </div>
+            <div class="rb-line">
+              <button class="sb-btn" id="btn-bold" data-cmd="format:bold" title="굵게 (Ctrl+B)"><b>가</b></button>
+              <button class="sb-btn" id="btn-italic" data-cmd="format:italic" title="기울임꼴 (Ctrl+I)"><i>가</i></button>
+              <button class="sb-btn" id="btn-underline" data-cmd="format:underline" title="밑줄 (Ctrl+U)"><u>가</u></button>
+              <button class="sb-btn" id="btn-strike" data-cmd="format:strike" title="취소선 (Ctrl+Shift+X)"><s>가</s></button>
+              <button class="sb-btn" id="btn-sub" data-cmd="format:subscript" title="아래 첨자 (Ctrl+=)">x<sub>2</sub></button>
+              <button class="sb-btn" id="btn-sup" data-cmd="format:superscript" title="위 첨자 (Ctrl+Shift+=)">x<sup>2</sup></button>
+              <span class="sb-sep"></span>
+              <button class="sb-btn sb-color" id="btn-highlight" title="텍스트 강조 색 (오른쪽 부분: 색 선택)"><span class="tb-icon sm" data-icon="highlight"></span><span id="hl-bar" class="sb-color-bar" style="background:#ffff00"></span></button>
+              <button class="sb-btn sb-color" id="btn-text-color" title="글꼴 색 (오른쪽 부분: 색 선택)"><span class="sb-color-a">가</span><span id="color-bar" class="sb-color-bar"></span></button>
+            </div>
+          </div>
+          <div class="rb-label">글꼴 <button class="rb-launch" data-cmd="format:font" title="글꼴… (Ctrl+D)">↘</button></div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-col rb-gap">
+            <div class="rb-line">
+              <button class="sb-btn" id="tb-bullet" data-cmd="format:bullet" title="글머리 기호 (Ctrl+Shift+L)"><span class="tb-icon sm" data-icon="bullet"></span></button>
+              <button class="sb-btn" id="tb-numbering" data-cmd="format:numbering" title="번호 매기기"><span class="tb-icon sm" data-icon="numbering"></span></button>
+              <button class="sb-btn" data-cmd="format:outdent" title="들여쓰기 줄이기 (Ctrl+Shift+M)"><span class="tb-icon sm" data-icon="outdent"></span></button>
+              <button class="sb-btn" data-cmd="format:indent" title="들여쓰기 늘리기 (Ctrl+M)"><span class="tb-icon sm" data-icon="indent"></span></button>
+              <span class="sb-sep"></span>
+              <button class="sb-btn" id="tb-marks" data-cmd="view:toggle-marks" title="편집 기호 표시/숨기기 (Ctrl+Shift+8)"><span class="tb-icon sm" data-icon="marks"></span></button>
+            </div>
+            <div class="rb-line">
+              <button class="sb-btn" id="btn-align-left" data-cmd="format:align-left" title="왼쪽 맞춤 (Ctrl+L)"><span class="tb-icon sm" data-icon="al"></span></button>
+              <button class="sb-btn" id="btn-align-center" data-cmd="format:align-center" title="가운데 맞춤 (Ctrl+E)"><span class="tb-icon sm" data-icon="ac"></span></button>
+              <button class="sb-btn" id="btn-align-right" data-cmd="format:align-right" title="오른쪽 맞춤 (Ctrl+R)"><span class="tb-icon sm" data-icon="ar"></span></button>
+              <button class="sb-btn" id="btn-align-justify" data-cmd="format:align-justify" title="양쪽 맞춤 (Ctrl+J)"><span class="tb-icon sm" data-icon="aj"></span></button>
+              <span class="sb-sep"></span>
+              <select id="line-spacing" class="sb-combo sb-line" title="줄 및 단락 간격">
+                <option value="">줄 간격</option>
+                <option value="1.00">1.0</option><option value="1.15">1.15</option><option value="1.50">1.5</option>
+                <option value="2.00">2.0</option><option value="2.50">2.5</option><option value="3.00">3.0</option>
+              </select>
+            </div>
+          </div>
+          <div class="rb-label">단락 <button class="rb-launch" data-cmd="format:paragraph" title="단락… (Ctrl+Alt+M)">↘</button></div>
+        </div>
+        <div class="rb-group rb-styles">
+          <div id="style-gallery"></div>
+          <div class="rb-label">스타일</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-col">
+            <button class="rb-small" data-cmd="edit:find" title="찾기 (Ctrl+F)"><span class="tb-icon sm" data-icon="find"></span>찾기</button>
+            <button class="rb-small" data-cmd="edit:replace" title="바꾸기 (Ctrl+H)"><span class="tb-icon sm" data-icon="replace"></span>바꾸기</button>
+            <button class="rb-small" data-cmd="edit:select-all" title="모두 선택 (Ctrl+A)"><span class="tb-icon sm" data-icon="select"></span>모두 선택</button>
+          </div>
+          <div class="rb-label">편집</div>
+        </div>
+      </div>
+      <!-- 삽입 -->
+      <div class="rb-panel" data-panel="insert">
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" data-cmd="insert:page-break" title="페이지 나누기 (Ctrl+Enter)"><span class="tb-icon" data-icon="pagebreak"></span><span>페이지<br>나누기</span></button>
+          </div>
+          <div class="rb-label">페이지</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" id="tb-table" data-cmd="insert:table" title="표"><span class="tb-icon" data-icon="table"></span><span>표 ▾</span></button>
+          </div>
+          <div class="rb-label">표</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" data-cmd="insert:image" title="그림 (Ctrl+Shift+I)"><span class="tb-icon" data-icon="image"></span><span>그림</span></button>
+          </div>
+          <div class="rb-label">일러스트레이션</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" data-cmd="insert:hyperlink" title="하이퍼링크 (Ctrl+K)"><span class="tb-icon" data-icon="link"></span><span>링크</span></button>
+          </div>
+          <div class="rb-label">링크</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" data-cmd="insert:date" title="날짜 및 시간"><span class="tb-icon" data-icon="date"></span><span>날짜 및<br>시간</span></button>
+            <button class="rb-big" id="tb-symbol" data-cmd="insert:symbol" title="기호"><span class="tb-icon" data-icon="symbol"></span><span>기호 ▾</span></button>
+          </div>
+          <div class="rb-label">텍스트</div>
+        </div>
+      </div>
+      <!-- 레이아웃 -->
+      <div class="rb-panel" data-panel="layout">
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" id="tb-margins" data-cmd="layout:margins" title="여백"><span class="tb-icon" data-icon="margins"></span><span>여백 ▾</span></button>
+            <button class="rb-big" id="tb-orient" data-cmd="layout:orientation" title="용지 방향"><span class="tb-icon" data-icon="orient"></span><span>용지 방향 ▾</span></button>
+            <button class="rb-big" id="tb-size" data-cmd="layout:size" title="크기"><span class="tb-icon" data-icon="page"></span><span>크기 ▾</span></button>
+            <button class="rb-big" data-cmd="insert:page-break" title="나누기"><span class="tb-icon" data-icon="pagebreak"></span><span>나누기</span></button>
+          </div>
+          <div class="rb-label">페이지 설정 <button class="rb-launch" data-cmd="page:setup" title="페이지 설정…">↘</button></div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-grid2">
+            <span class="rb-cap">들여쓰기</span><span class="rb-cap">간격</span>
+            <label class="rb-field">왼쪽 <input id="lay-left" type="number" step="0.1" min="0"> cm</label>
+            <label class="rb-field">앞 <input id="lay-before" type="number" step="1" min="0"> pt</label>
+            <label class="rb-field">오른쪽 <input id="lay-right" type="number" step="0.1" min="0"> cm</label>
+            <label class="rb-field">뒤 <input id="lay-after" type="number" step="1" min="0"> pt</label>
+          </div>
+          <div class="rb-label">단락 <button class="rb-launch" data-cmd="format:paragraph" title="단락…">↘</button></div>
+        </div>
+      </div>
+      <!-- 검토 -->
+      <div class="rb-panel" data-panel="review">
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" data-cmd="tool:stats" title="단어 개수"><span class="tb-icon" data-icon="count"></span><span>단어 개수</span></button>
+          </div>
+          <div class="rb-label">언어 교정</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" data-cmd="review:accept-all" title="모든 변경 내용 적용"><span class="tb-icon" data-icon="accept"></span><span>모두<br>적용</span></button>
+            <button class="rb-big" data-cmd="review:reject-all" title="모든 변경 내용 거부"><span class="tb-icon" data-icon="reject"></span><span>모두<br>거부</span></button>
+          </div>
+          <div class="rb-label">변경 내용</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" data-cmd="edit:find" title="찾기"><span class="tb-icon" data-icon="find"></span><span>찾기</span></button>
+          </div>
+          <div class="rb-label">찾기</div>
+        </div>
+      </div>
+      <!-- 보기 -->
+      <div class="rb-panel" data-panel="view">
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big active" data-cmd="view:print-layout" title="인쇄 모양"><span class="tb-icon" data-icon="page"></span><span>인쇄 모양</span></button>
+          </div>
+          <div class="rb-label">보기</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-col">
+            <label class="rb-check"><input type="checkbox" data-check="view:toggle-ruler"> 눈금자</label>
+            <label class="rb-check"><input type="checkbox" data-check="view:toggle-outline"> 탐색 창</label>
+            <label class="rb-check"><input type="checkbox" data-check="view:toggle-marks"> 편집 기호</label>
+            <label class="rb-check"><input type="checkbox" data-check="view:gridlines"> 표 눈금선</label>
+          </div>
+          <div class="rb-label">표시</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" data-cmd="view:zoom-100" title="100%"><span class="tb-icon" data-icon="zoom"></span><span>100%</span></button>
+            <button class="rb-big" data-cmd="view:zoom-page" title="한 페이지"><span class="tb-icon" data-icon="page"></span><span>한 페이지</span></button>
+            <button class="rb-big" data-cmd="view:zoom-width" title="페이지 너비"><span class="tb-icon" data-icon="width"></span><span>페이지<br>너비</span></button>
+          </div>
+          <div class="rb-label">확대/축소</div>
+        </div>
+      </div>
+      <!-- 표 레이아웃 (표 안에 커서가 있을 때) -->
+      <div class="rb-panel" data-panel="table">
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" id="tb-tdelete" data-cmd="table:delete-menu" title="삭제"><span class="tb-icon" data-icon="tdelete"></span><span>삭제 ▾</span></button>
+            <button class="rb-big" data-cmd="table:row-above" title="위에 삽입"><span class="tb-icon" data-icon="rowabove"></span><span>위에<br>삽입</span></button>
+            <button class="rb-big" data-cmd="table:row-below" title="아래에 삽입"><span class="tb-icon" data-icon="rowbelow"></span><span>아래에<br>삽입</span></button>
+            <button class="rb-big" data-cmd="table:col-left" title="왼쪽에 삽입"><span class="tb-icon" data-icon="colleft"></span><span>왼쪽에<br>삽입</span></button>
+            <button class="rb-big" data-cmd="table:col-right" title="오른쪽에 삽입"><span class="tb-icon" data-icon="colright"></span><span>오른쪽에<br>삽입</span></button>
+          </div>
+          <div class="rb-label">행 및 열</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-row">
+          <div class="cell-align">
+            <button class="sb-btn" id="btn-cell-top-left" data-cmd="table:align-top-left" title="위쪽 왼쪽 맞춤"></button>
+            <button class="sb-btn" id="btn-cell-top-center" data-cmd="table:align-top-center" title="위쪽 가운데 맞춤"></button>
+            <button class="sb-btn" id="btn-cell-top-right" data-cmd="table:align-top-right" title="위쪽 오른쪽 맞춤"></button>
+            <button class="sb-btn" id="btn-cell-center-left" data-cmd="table:align-center-left" title="가운데 왼쪽 맞춤"></button>
+            <button class="sb-btn" id="btn-cell-center-center" data-cmd="table:align-center-center" title="가운데 맞춤"></button>
+            <button class="sb-btn" id="btn-cell-center-right" data-cmd="table:align-center-right" title="가운데 오른쪽 맞춤"></button>
+            <button class="sb-btn" id="btn-cell-bottom-left" data-cmd="table:align-bottom-left" title="아래쪽 왼쪽 맞춤"></button>
+            <button class="sb-btn" id="btn-cell-bottom-center" data-cmd="table:align-bottom-center" title="아래쪽 가운데 맞춤"></button>
+            <button class="sb-btn" id="btn-cell-bottom-right" data-cmd="table:align-bottom-right" title="아래쪽 오른쪽 맞춤"></button>
+          </div>
+          <div class="rb-col">
+            <button class="rb-small" id="btn-valign-top" data-cmd="table:valign-top" title="셀 위쪽 맞춤"><span class="tb-icon sm" data-icon="vtop"></span>위쪽</button>
+            <button class="rb-small" id="btn-valign-center" data-cmd="table:valign-center" title="셀 가운데 맞춤"><span class="tb-icon sm" data-icon="vmid"></span>가운데</button>
+            <button class="rb-small" id="btn-valign-bottom" data-cmd="table:valign-bottom" title="셀 아래쪽 맞춤"><span class="tb-icon sm" data-icon="vbot"></span>아래쪽</button>
+          </div>
+          </div>
+          <div class="rb-label">맞춤</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-col">
+            <button class="rb-small" data-cmd="view:gridlines"><span class="tb-icon sm" data-icon="table"></span>눈금선 보기</button>
+            <span class="rb-note">열 너비 · 행 높이는<br>표 테두리선을 끌어서 조절</span>
+          </div>
+          <div class="rb-label">표</div>
+        </div>
+      </div>
     </div>
-    <span class="tb-sep"></span>
-    <div class="tb-group">
-      <button class="tb-btn" id="tb-table" data-cmd="insert:table" title="표"><span class="tb-icon" data-icon="table"></span><span class="tb-label">표 ▾</span></button>
-      <button class="tb-btn" data-cmd="insert:image" title="그림"><span class="tb-icon" data-icon="image"></span><span class="tb-label">그림</span></button>
-      <button class="tb-btn" data-cmd="insert:page-break" title="쪽 나누기 (Ctrl+Enter)"><span class="tb-icon" data-icon="pagebreak"></span><span class="tb-label">쪽<br>나누기</span></button>
-    </div>
-    <span class="tb-sep"></span>
-    <div class="tb-group">
-      <button class="tb-btn" id="tb-bullet" data-cmd="format:bullet" title="글머리표"><span class="tb-icon" data-icon="bullet"></span><span class="tb-label">글머리<br>표</span></button>
-      <button class="tb-btn" id="tb-numbering" data-cmd="format:numbering" title="문단 번호"><span class="tb-icon" data-icon="numbering"></span><span class="tb-label">문단<br>번호</span></button>
-      <button class="tb-btn" data-cmd="format:outdent" title="내어쓰기 (Ctrl+Shift+M)"><span class="tb-icon" data-icon="outdent"></span><span class="tb-label">내어<br>쓰기</span></button>
-      <button class="tb-btn" data-cmd="format:indent" title="들여쓰기 (Ctrl+M)"><span class="tb-icon" data-icon="indent"></span><span class="tb-label">들여<br>쓰기</span></button>
-    </div>
-    <span class="tb-sep"></span>
-    <div class="tb-group">
-      <button class="tb-btn" data-cmd="format:paragraph" title="문단 모양 (Ctrl+Shift+P)"><span class="tb-icon" data-icon="para"></span><span class="tb-label">문단<br>모양</span></button>
-      <button class="tb-btn" data-cmd="page:setup" title="쪽 설정"><span class="tb-icon" data-icon="page"></span><span class="tb-label">쪽<br>설정</span></button>
-      <button class="tb-btn" id="tb-marks" data-cmd="view:toggle-marks" title="문단 부호 (Ctrl+Shift+8)"><span class="tb-icon" data-icon="marks"></span><span class="tb-label">문단<br>부호</span></button>
-    </div>
-    <span class="tb-sep"></span>
-    <div class="tb-group">
-      <button class="tb-btn" data-cmd="edit:find" title="찾기 (Ctrl+F)"><span class="tb-icon" data-icon="find"></span><span class="tb-label">찾기</span></button>
-      <button class="tb-btn" data-cmd="file:print" title="인쇄 (Ctrl+P)"><span class="tb-icon" data-icon="print"></span><span class="tb-label">인쇄</span></button>
-    </div>
-  </div>
-
-  <!-- 서식 바 (HOP: #style-bar) -->
-  <div id="style-bar">
-    <select id="para-style" class="sb-combo sb-style" title="스타일"></select>
-    <input id="font-name" class="sb-combo sb-font" list="font-list" title="글꼴" autocomplete="off">
-    <datalist id="font-list"></datalist>
-    <span class="sb-field">
-      <input id="font-size" class="sb-size" list="size-list" title="글자 크기 (pt)" autocomplete="off">
-      <datalist id="size-list"></datalist>
-      <span class="sb-arrows"><button class="sb-arrow" id="btn-size-up" title="크게 (Ctrl+])">▲</button><button class="sb-arrow" id="btn-size-down" title="작게 (Ctrl+[)">▼</button></span>
-    </span>
-    <span class="sb-sep"></span>
-    <button class="sb-btn" id="btn-bold" data-cmd="format:bold" title="진하게 (Ctrl+B)"><b>가</b></button>
-    <button class="sb-btn" id="btn-italic" data-cmd="format:italic" title="기울임 (Ctrl+I)"><i>가</i></button>
-    <button class="sb-btn" id="btn-underline" data-cmd="format:underline" title="밑줄 (Ctrl+U)"><u>가</u></button>
-    <button class="sb-btn" id="btn-strike" data-cmd="format:strike" title="취소선"><s>가</s></button>
-    <button class="sb-btn" id="btn-sup" data-cmd="format:superscript" title="위 첨자 (Ctrl+Shift+=)">x<sup>2</sup></button>
-    <button class="sb-btn" id="btn-sub" data-cmd="format:subscript" title="아래 첨자 (Ctrl+=)">x<sub>2</sub></button>
-    <button class="sb-btn sb-color" id="btn-text-color" title="글자 색 (오른쪽 클릭: 팔레트)"><span class="sb-color-a">가</span><span id="color-bar" class="sb-color-bar"></span></button>
-    <button class="sb-btn sb-color" id="btn-highlight" title="형광펜 (오른쪽 클릭: 색 선택)"><span class="tb-icon sm" data-icon="highlight"></span><span class="sb-color-bar" style="background:#ffff00"></span></button>
-    <span class="sb-sep"></span>
-    <button class="sb-btn" id="btn-align-left" data-cmd="format:align-left" title="왼쪽 정렬 (Ctrl+L)"><span class="tb-icon sm" data-icon="al"></span></button>
-    <button class="sb-btn" id="btn-align-center" data-cmd="format:align-center" title="가운데 정렬 (Ctrl+E)"><span class="tb-icon sm" data-icon="ac"></span></button>
-    <button class="sb-btn" id="btn-align-right" data-cmd="format:align-right" title="오른쪽 정렬 (Ctrl+R)"><span class="tb-icon sm" data-icon="ar"></span></button>
-    <button class="sb-btn" id="btn-align-justify" data-cmd="format:align-justify" title="양쪽 정렬 (Ctrl+J)"><span class="tb-icon sm" data-icon="aj"></span></button>
-    <span class="sb-sep"></span>
-    <button class="sb-btn" id="btn-valign-top" data-cmd="table:valign-top" title="셀 위쪽 정렬"><span class="tb-icon sm" data-icon="vtop"></span></button>
-    <button class="sb-btn" id="btn-valign-center" data-cmd="table:valign-center" title="셀 가운데 정렬"><span class="tb-icon sm" data-icon="vmid"></span></button>
-    <button class="sb-btn" id="btn-valign-bottom" data-cmd="table:valign-bottom" title="셀 아래쪽 정렬"><span class="tb-icon sm" data-icon="vbot"></span></button>
-    <span class="sb-sep"></span>
-    <select id="line-spacing" class="sb-combo sb-line" title="줄 간격">
-      <option value="">줄 간격</option>
-      <option value="1.00">1.0</option><option value="1.15">1.15</option><option value="1.50">1.5</option>
-      <option value="2.00">2.0</option><option value="2.50">2.5</option><option value="3.00">3.0</option>
-    </select>
   </div>
 
   <div id="workspace">
@@ -232,18 +460,19 @@
     </div>
   </div>
 
-  <!-- 상태바 (HOP: #status-bar) -->
+  <!-- 상태 표시줄 (HOP: #status-bar) -->
   <div id="status-bar">
-    <span id="sb-page" class="sb-item">쪽 0 / 0</span>
+    <span id="sb-page" class="sb-item">페이지 0/0</span>
     <span id="sb-count" class="sb-item"></span>
+    <span id="sb-lang" class="sb-item">한국어</span>
     <span id="sb-mode" class="sb-item">입력</span>
     <span id="sb-message" class="sb-item sb-msg"></span>
     <span class="sb-spacer"></span>
-    <button class="sb-zbtn" data-cmd="view:zoom-width" title="쪽 너비에 맞춤">너비</button>
-    <button class="sb-zbtn" data-cmd="view:zoom-page" title="쪽 전체">쪽</button>
+    <button class="sb-zbtn" data-cmd="view:toggle-marks" title="편집 기호">¶</button>
     <button class="sb-zbtn" data-cmd="view:zoom-out" title="축소">−</button>
-    <span id="sb-zoom-val">100%</span>
+    <input id="zoom-slider" type="range" min="20" max="500" step="1" value="100" title="확대/축소">
     <button class="sb-zbtn" data-cmd="view:zoom-in" title="확대">+</button>
+    <span id="sb-zoom-val">100%</span>
   </div>
 </div>
 <input type="file" id="file-input" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>

@@ -5,10 +5,10 @@ import { CT, OpcPackage, REL, relsPathFor } from './package';
 import { Label, Numbering } from './numbering';
 import {
   Item, ParaProps, RunProps, ensurePPr, ensureRPr, insertAt, itemRuns, itemsInRange, makeRun, markRPr,
-  mergeRuns, paraItems, paraLength, paraText, setParaProps, setRunProps, splitParagraph, walkParagraphs,
+  mergeRuns, paraItems, paraLength, paraText, setParaProps, setRunProps, setText, splitParagraph, walkParagraphs,
 } from './model';
 import { ParaFmt, RunFmt, StyleSheet, ThemeInfo, parseTheme } from './styles';
-import { NS, PPR_ORDER, SECTPR_ORDER, TBLPR_ORDER, TCPR_ORDER, TRPR_ORDER, child, children, create, descendants, ensureOrdered, escapeXml, is, parseXml, path, removeChild, serializeXml, setAttr, wa, wnum } from './xml';
+import { NS, PPR_ORDER, RPR_ORDER, SECTPR_ORDER, TBLPR_ORDER, TCPR_ORDER, TRPR_ORDER, child, children, create, descendants, ensureOrdered, escapeXml, is, parseXml, path, removeChild, serializeXml, setAttr, wa, wnum } from './xml';
 
 export const TWIP_PER_PT = 20;
 export const EMU_PER_PT = 12700;
@@ -750,7 +750,7 @@ export class DocxDocument {
     const cell = this.cellOf(pi);
     if (!cell) return null;
     const { tc, tr, tbl } = cell;
-    const labels = { 'row-above': '위에 줄 넣기', 'row-below': '아래에 줄 넣기', 'col-left': '왼쪽에 칸 넣기', 'col-right': '오른쪽에 칸 넣기', 'del-row': '줄 지우기', 'del-col': '칸 지우기', 'del-table': '표 지우기' };
+    const labels = { 'row-above': '위에 행 삽입', 'row-below': '아래에 행 삽입', 'col-left': '왼쪽에 열 삽입', 'col-right': '오른쪽에 열 삽입', 'del-row': '행 삭제', 'del-col': '열 삭제', 'del-table': '표 삭제' };
     return this.transact(labels[op], [], () => {
       const firstP = (el: Element) => descendants(el, 'w:p')[0];
       const finish = (focus: Element | null): Pos => {
@@ -810,6 +810,144 @@ export class DocxDocument {
     });
   }
 
+  /** Change the case of the text in a range (run structure and formatting are kept). */
+  changeCase(range: Range, mode: 'upper' | 'lower' | 'title' | 'sentence') {
+    this.transact('대/소문자 바꾸기', [], () => {
+      this.eachInRange(range, (p, s, e) => {
+        if (s >= e) return;
+        let first = true;
+        let prevSpace = s === 0 || /\s/.test(paraText(p)[s - 1] ?? ' ');
+        for (const it of itemsInRange(p, s, e)) {
+          if (it.kind !== 'text') { prevSpace = it.kind !== 'atom'; continue; }
+          const t = child(it.nodes[0], 'w:t');
+          if (!t) continue;
+          let out = '';
+          for (const ch of t.textContent ?? '') {
+            if (mode === 'upper') out += ch.toUpperCase();
+            else if (mode === 'lower') out += ch.toLowerCase();
+            else if (mode === 'title') out += prevSpace ? ch.toUpperCase() : ch.toLowerCase();
+            else out += first && /\S/.test(ch) ? ch.toUpperCase() : ch.toLowerCase();
+            if (/\S/.test(ch)) first = false;
+            prevSpace = /\s/.test(ch);
+          }
+          setText(t, out);
+        }
+        mergeRuns(p);
+      });
+    });
+  }
+
+  /** Make the selected text (within one paragraph) a hyperlink; with no selection insert the URL. */
+  insertHyperlink(range: Range, url: string, text?: string): Pos {
+    const { start, end } = normRange(range);
+    const p = this.para(start.pi)!;
+    const e = start.pi === end.pi ? end.off : paraLength(p);
+    return this.transact('하이퍼링크', [relsPathFor(this.docPath)], () => {
+      const internal = url.startsWith('#');
+      const link = create(this.xml, 'w:hyperlink');
+      if (internal) setAttr(link, 'w:anchor', url.slice(1));
+      else link.setAttributeNS(NS.r, 'r:id', this.pkg.addExternalRel(this.docPath, REL.hyperlink, url));
+      setAttr(link, 'w:history', '1');
+      const styled = (rPr: Element | null) => {
+        const r = rPr ? rPr.cloneNode(true) as Element : create(this.xml, 'w:rPr');
+        if (this.styles.style('Hyperlink')) setAttr(ensureOrdered(r, 'w:rStyle', RPR_ORDER), 'w:val', 'Hyperlink');
+        else setRunProps(r, { color: '0563C1', u: 'single' });
+        return r;
+      };
+      let len: number;
+      if (start.off === e) {
+        const label = text || url;
+        link.appendChild(makeRun(this.xml, styled(this.rPrAt(p, start.off)), label));
+        insertAt(p, start.off, [link]);
+        len = label.length;
+      } else {
+        const items = itemsInRange(p, start.off, e).filter((it) => !it.containers.length);
+        if (!items.length) return start;
+        items[0].nodes[0].before(link);
+        for (const it of items) for (const n of it.nodes) {
+          if (is(n, 'w:r')) { const old = child(n, 'w:rPr'); const r = styled(old); if (old) old.replaceWith(r); else n.insertBefore(r, n.firstChild); }
+          link.appendChild(n);
+        }
+        len = e - start.off;
+      }
+      mergeRuns(p);
+      return { pi: start.pi, off: start.off + len };
+    });
+  }
+
+  /** Line break (Shift+Enter) at a position. */
+  insertLineBreak(pos: Pos): Pos {
+    return this.transact('줄 바꿈', [], () => {
+      const p = this.para(pos.pi)!;
+      insertAt(p, pos.off, [makeRun(this.xml, this.rPrAt(p, pos.off), create(this.xml, 'w:br'))]);
+      return { pi: pos.pi, off: pos.off + 1 };
+    });
+  }
+
+  /** Number of tracked changes (insertions, deletions, moves, formatting changes). */
+  revisionCount(): number {
+    let n = 0;
+    for (const l of ['ins', 'del', 'moveFrom', 'moveTo', 'rPrChange', 'pPrChange']) n += this.body.getElementsByTagNameNS(NS.w, l).length;
+    return n;
+  }
+
+  /** Accept (or reject) every tracked change in the body. */
+  resolveRevisions(accept: boolean) {
+    this.transact(accept ? '변경 내용 모두 적용' : '변경 내용 모두 거부', [], () => {
+      const all = (l: string) => Array.from(this.body.getElementsByTagNameNS(NS.w, l));
+      const unwrap = (el: Element) => { while (el.firstChild) el.before(el.firstChild); el.remove(); };
+      for (const el of all('ins')) {
+        if (is(el.parentElement, 'w:rPr') || is(el.parentElement, 'w:trPr')) { el.remove(); continue; } // paragraph-mark / row markers
+        if (accept) unwrap(el); else el.remove();
+      }
+      for (const el of all('moveTo')) { if (accept) unwrap(el); else el.remove(); }
+      for (const tag of ['del', 'moveFrom']) {
+        for (const el of all(tag)) {
+          if (is(el.parentElement, 'w:rPr') || is(el.parentElement, 'w:trPr')) { el.remove(); continue; }
+          if (accept) { el.remove(); continue; }
+          for (const dt of Array.from(el.getElementsByTagNameNS(NS.w, 'delText'))) {
+            const t = create(this.xml, 'w:t');
+            setText(t, dt.textContent ?? '');
+            dt.replaceWith(t);
+          }
+          unwrap(el);
+        }
+      }
+      for (const tag of ['rPrChange', 'pPrChange']) {
+        for (const el of all(tag)) {
+          if (!accept) {
+            // Reject: the properties recorded before the change come back.
+            const old = el.firstElementChild;
+            const owner = el.parentElement!;
+            for (const c of children(owner)) if (c !== el) c.remove();
+            if (old) for (const c of children(old)) owner.appendChild(c);
+          }
+          el.remove();
+        }
+      }
+      for (const l of ['moveFromRangeStart', 'moveFromRangeEnd', 'moveToRangeStart', 'moveToRangeEnd']) for (const el of all(l)) el.remove();
+      for (const p of walkParagraphs(this.body)) mergeRuns(p);
+    });
+  }
+
+  /** Paragraph indices inside the cells that contain `pis`. */
+  cellParagraphs(pis: number[]): number[] {
+    const cells = new Set(pis.map((i) => this.cellOf(i)?.tc).filter((c): c is Element => !!c));
+    const out: number[] = [];
+    for (const tc of cells) for (const p of children(tc, 'w:p')) out.push(this.indexOf(p));
+    return out.filter((i) => i >= 0);
+  }
+
+  /** Word's 3×3 cell alignment: vertical (cell) and horizontal (paragraphs in the cell). */
+  alignCells(pis: number[], v: 'top' | 'center' | 'bottom', h: 'left' | 'center' | 'right') {
+    const paras = this.cellParagraphs(pis);
+    if (!paras.length) return;
+    this.transact('셀 맞춤', [], () => {
+      this.setCellVAlign(pis, v);
+      for (const i of paras) setParaProps(this.para(i)!, { jc: h });
+    });
+  }
+
   /** Vertical alignment of the cells that contain paragraphs `pis` (w:tcPr/w:vAlign). */
   setCellVAlign(pis: number[], v: 'top' | 'center' | 'bottom') {
     const cells = [...new Set(pis.map((i) => this.cellOf(i)?.tc).filter((c): c is Element => !!c))];
@@ -843,7 +981,7 @@ export class DocxDocument {
 
   /** Set grid column widths (twips): updates w:gridCol, every cell's w:tcW and a fixed table width. */
   setColumnWidths(tbl: Element, widths: number[]) {
-    this.transact('칸 너비', [], () => {
+    this.transact('열 너비', [], () => {
       const ws = widths.map((w) => Math.max(120, Math.round(w)));
       let grid = child(tbl, 'w:tblGrid');
       if (!grid) { grid = create(this.xml, 'w:tblGrid'); child(tbl, 'w:tblPr')!.after(grid); }
@@ -875,7 +1013,7 @@ export class DocxDocument {
   setRowHeight(tbl: Element, row: number, twips: number | null) {
     const tr = children(tbl, 'w:tr')[row];
     if (!tr) return;
-    this.transact('줄 높이', [], () => {
+    this.transact('행 높이', [], () => {
       let trPr = child(tr, 'w:trPr');
       if (twips == null) { removeChild(trPr, 'w:trHeight'); return; }
       if (!trPr) {

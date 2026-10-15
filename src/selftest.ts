@@ -349,7 +349,7 @@ export async function runSelfTest(app: App) {
     window.dispatchEvent(new MouseEvent('mouseup', { clientX: x, clientY: r.bottom + 40 * ed.zoom }));
     const h1 = (ed.paragraphElement(find('새 표'))!.closest('tr') as HTMLElement).offsetHeight;
     expect(Math.abs(h1 - (h0 + 40)) <= 2, `${h0} → ${h1}`);
-    eq(doc().undoLabel(), '줄 높이', '실행 취소 항목');
+    eq(doc().undoLabel(), '행 높이', '실행 취소 항목');
   });
   await check('그림 넣기(붙여넣기) → 선택·크기 조절·지우기', async () => {
     const pi = find('문서 끝.');
@@ -420,6 +420,140 @@ export async function runSelfTest(app: App) {
     expect(steps.length === 20, `실행 취소 단계 ${steps.length}`);
     for (let i = 0; i < 20; i++) run('edit:redo');
     eq(doc().xmlText() === before, true, '다시 실행 후 같은 문서');
+  });
+
+  // ------------------------------------------------------------------ Word-style menus and ribbon
+  await check('메뉴 막대: Word 구성, 모든 항목에 명령 연결', () => {
+    eq(Array.from(document.querySelectorAll('#menu-bar > .menu-item > .menu-title')).map((t) => t.textContent), ['파일', '편집', '보기', '삽입', '서식', '도구', '표', '도움말'], '메뉴');
+    const missing = Array.from(document.querySelectorAll<HTMLElement>('[data-cmd]')).map((e) => e.dataset.cmd!).filter((id) => !app.cmd.has(id));
+    expect(!missing.length, '명령 없음: ' + missing.join(', '));
+    const checks = Array.from(document.querySelectorAll<HTMLElement>('[data-check]')).map((e) => e.dataset.check!).filter((id) => !app.cmd.has(id));
+    expect(!checks.length, '체크 명령 없음: ' + checks.join(', '));
+    const tbl = document.querySelector<HTMLElement>('[data-menu="table"] .menu-title')!;
+    tbl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(document.querySelector('[data-menu="table"]')!.classList.contains('open'), '표 메뉴가 열리지 않음');
+    expect(document.querySelector('[data-menu="table"] .md-item[data-cmd="table:del-row"]')!.classList.contains('disabled'), '표 밖에서 행 삭제가 활성');
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(!document.querySelector('.menu-item.open'), '메뉴가 닫히지 않음');
+  });
+  await check('리본: 탭 전환, 표 안에서만 표 레이아웃 탭', async () => {
+    for (const t of ['insert', 'layout', 'review', 'view', 'home']) {
+      document.querySelector<HTMLElement>(`.rb-tab[data-tab="${t}"]`)!.click();
+      expect(document.querySelector<HTMLElement>(`.rb-panel[data-panel="${t}"]`)!.classList.contains('active'), t);
+    }
+    const tab = document.querySelector<HTMLElement>('.rb-tab[data-tab="table"]')!;
+    caret(find('문서 끝.'), 0);
+    await sleep(60);
+    expect(tab.hidden, '표 밖인데 표 탭이 보임');
+    caret(find('구분', true), 0);
+    await sleep(60);
+    expect(!tab.hidden, '표 안인데 표 탭이 없음');
+    tab.click();
+    run('table:align-center-center');
+    eq([doc().cellVAlign(find('구분', true)), doc().paraFmt(doc().para(find('구분', true))!).jc], ['center', 'center'], '3×3 맞춤');
+    await sleep(60);
+    expect(document.getElementById('btn-cell-center-center')!.classList.contains('active'), '맞춤 버튼 표시');
+    caret(find('문서 끝.'), 0);
+    await sleep(60);
+    expect(tab.hidden && document.querySelector('.rb-tab[data-tab="home"]')!.classList.contains('active'), '표를 벗어나면 홈 탭으로');
+    run('view:toggle-ribbon');
+    expect(document.getElementById('ribbon')!.classList.contains('collapsed'), '리본 접기');
+    run('view:toggle-ribbon');
+  });
+  await check('홈 탭: 스타일 갤러리', async () => {
+    const pi = find('문단 위 12pt');
+    caret(pi, 0);
+    await sleep(60);
+    const card = document.querySelector<HTMLElement>('#style-gallery .style-card[data-style="Heading1"]')!;
+    expect(card, '제목 1 카드 없음');
+    card.click();
+    eq(doc().pStyleOf(doc().para(pi)!), 'Heading1', '스타일');
+    await sleep(60);
+    expect(document.querySelector('#style-gallery .style-card.active')?.getAttribute('data-style') === 'Heading1', '활성 카드');
+    run('edit:undo');
+  });
+  await check('서식 ▸ 글꼴… 대화상자', () => {
+    const pi = find('가운데 정렬 문단');
+    select({ start: { pi, off: 0 }, end: { pi, off: 2 } });
+    run('format:font');
+    const dlg = document.querySelector('.dlg')!;
+    const q = (n: string) => dlg.querySelector<HTMLInputElement>(`[name="${n}"]`)!;
+    q('ea').value = '굴림'; q('ascii').value = 'Georgia';
+    q('sz').value = '15';
+    (dlg.querySelector('[name="style"]') as HTMLSelectElement).value = 'bi';
+    (dlg.querySelector('[name="u"]') as HTMLSelectElement).value = 'double';
+    q('dstrike').checked = true; q('smallCaps').checked = true;
+    Array.from(dlg.querySelectorAll('button')).find((b) => b.textContent === '확인')!.click();
+    const f = fmtOf(pi, 1);
+    eq([f.ea, f.ascii, f.sz, f.b, f.i, f.u, f.dstrike, f.smallCaps], ['굴림', 'Georgia', 30, true, true, 'double', true, true], '글꼴');
+  });
+  await check('대/소문자 바꾸기, 날짜, 기호, 줄 바꿈', () => {
+    const pi = find('외부 링크');
+    const t = texts()[pi];
+    const s0 = t.indexOf('Oword');
+    select({ start: { pi, off: s0 }, end: { pi, off: s0 + 5 } });
+    run('format:case-upper');
+    expect(texts()[pi].includes('OWORD'), '대문자');
+    caret(find('문서 끝.'), 0);
+    run('insert:date');
+    Array.from(document.querySelectorAll('.dlg button')).find((b) => b.textContent === '삽입')!.dispatchEvent(new MouseEvent('click'));
+    expect(/^\d{4}-\d{2}-\d{2}\D/.test(texts()[find('문서 끝.')]), '날짜: ' + texts()[find('문서 끝.')]);
+    run('insert:symbol');
+    (document.querySelector<HTMLElement>('.symbol-grid button[title="U+2605"]'))!.click(); // ★
+    expect(texts()[find('문서 끝.')].includes('★'), '기호');
+    const n = doc().paragraphs().length;
+    run('insert:line-break');
+    eq(doc().paragraphs().length, n, '줄 바꿈은 문단을 나누지 않음');
+    expect(texts()[find('문서 끝.')].includes('\n'), '줄 바꿈');
+  });
+  await check('삽입 ▸ 하이퍼링크… (Ctrl+K)', () => {
+    const pi = find('오른쪽 정렬 문단');
+    select({ start: { pi, off: 0 }, end: { pi, off: 3 } });
+    run('insert:hyperlink');
+    const dlg = document.querySelector('.dlg')!;
+    dlg.querySelector<HTMLInputElement>('[name="url"]')!.value = 'example.org';
+    Array.from(dlg.querySelectorAll('button')).find((b) => b.textContent === '확인')!.click();
+    const a = ed.paragraphElement(find('오른쪽 정렬 문단'))!.querySelector<HTMLElement>('a.w-hyperlink')!;
+    eq([a.textContent, a.dataset.href], ['오른쪽', 'https://example.org'], '링크');
+  });
+  await check('검토 ▸ 변경 내용 모두 적용 / 거부', () => {
+    eq(doc().revisionCount(), 2, '변경 내용 수');
+    run('review:reject-all');
+    expect(texts().some((t) => t.includes('삭제된 글자 끝.')), '거부 → 삭제 취소');
+    run('edit:undo');
+    run('review:accept-all');
+    eq(doc().revisionCount(), 0, '적용');
+    expect(!ed.root.querySelector('.w-del, .w-ins'), '화면에 표시가 남음');
+    run('edit:undo');
+    eq(doc().revisionCount(), 2, '되돌리기');
+  });
+  await check('레이아웃 탭: 여백·방향·크기 메뉴, 단락 들여쓰기 칸', () => {
+    document.querySelector<HTMLElement>('.rb-tab[data-tab="layout"]')!.click();
+    run('layout:margins');
+    Array.from(document.querySelectorAll<HTMLElement>('.ctx-menu .md-item')).find((m) => m.textContent!.startsWith('좁게'))!.click();
+    eq([doc().pageSetup().left, doc().pageSetup().top], [720, 720], '좁게');
+    run('layout:orientation');
+    Array.from(document.querySelectorAll<HTMLElement>('.ctx-menu .md-item')).find((m) => m.textContent === '가로')!.click();
+    eq(doc().pageSetup().orient, 'landscape', '가로');
+    run('layout:size');
+    Array.from(document.querySelectorAll<HTMLElement>('.ctx-menu .md-item')).find((m) => m.textContent!.startsWith('Letter'))!.click();
+    eq([doc().pageSetup().w, doc().pageSetup().h], [15840, 12240], 'Letter 가로');
+    run('edit:undo'); run('edit:undo'); run('edit:undo');
+    eq(doc().pageSetup().w, 11906, '되돌리기');
+    const pi = find('왼쪽 정렬 문단');
+    caret(pi, 0);
+    const inp = document.getElementById('lay-left') as HTMLInputElement;
+    inp.value = '1.5';
+    inp.dispatchEvent(new Event('change'));
+    eq(Math.round(doc().paraFmt(doc().para(pi)!).left!), 850, '왼쪽 1.5cm');
+    document.querySelector<HTMLElement>('.rb-tab[data-tab="home"]')!.click();
+  });
+  await check('표 눈금선 보기 끄기/켜기', () => {
+    const t = Array.from(ed.root.querySelectorAll<HTMLTableElement>('table.nogrid'))[0];
+    expect(getComputedStyle(t.querySelector('td')!).outlineStyle === 'dashed', '눈금선 표시');
+    run('view:gridlines');
+    eq(getComputedStyle(t.querySelector('td')!).outlineStyle, 'none', '눈금선 숨김');
+    run('view:gridlines');
   });
 
   // ------------------------------------------------------------------ view, page setup, print
