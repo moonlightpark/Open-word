@@ -6,18 +6,18 @@ import { ImageCache } from '../engine/render';
 import { ParaFmt, RunFmt, styleLabel } from '../engine/styles';
 import { fontStack } from '../engine/render';
 import { Commands } from './commands';
-import { closeContextMenu, closePopover, colorPopover, contextMenu, dateDialog, dialog, emojiPopover, fontDialog, highlightPopover, html, hyperlinkDialog, menuPopover, pageSetupDialog, paragraphDialog, symbolPopover, tablePopover, toast } from './dialogs';
+import { closeContextMenu, closePopover, colorPopover, contextMenu, dateDialog, dialog, emojiPopover, fontDialog, highlightPopover, html, hyperlinkDialog, menuPopover, pageSetupDialog, paragraphDialog, symbolPopover, tablePopover, toast, windowMenuItems, zoomDialog } from './dialogs';
 import { DocEditor } from './editor';
 import { installIcons } from './icons';
 import { printDocument } from './print';
 import { drawRulers } from './ruler';
-import { isDesktop, pickImage, pickOpenFile, saveFile } from './shell';
+import { focusWindow, isDesktop, listWindows, openNewWindow, pickImage, pickOpenFile, saveFile } from './shell';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 /** A popover anchor: the ribbon button when it is visible, else the menu bar. */
 const anchor = (id: string) => { const e = $(id); return e && e.offsetParent ? e : $('menu-bar'); };
 
-const HF_ALLOWED = /^(file:|view:|tool:|hf:|edit:(undo|redo|cut|copy|paste|paste-text|select-all)$|format:(bold|italic|underline|strike|superscript|subscript|grow|shrink|text-color|highlight|font|clear|align-\w+)$|insert:(date|symbol|emoji)$|page:setup$)/;
+const HF_ALLOWED = /^(file:|view:|tool:|hf:|window:|edit:(undo|redo|cut|copy|paste|paste-text|select-all)$|format:(bold|italic|underline|strike|superscript|subscript|grow|shrink|text-color|highlight|font|clear|align-\w+)$|insert:(date|symbol|emoji)$|page:setup$)/;
 const FONTS = ['맑은 고딕', 'Apple SD Gothic Neo', '나눔고딕', '나눔명조', '굴림', '돋움', '바탕', '궁서', 'Noto Sans KR', 'Pretendard', 'Arial', 'Calibri', 'Calibri Light', 'Cambria', 'Helvetica', 'Times New Roman', 'Georgia', 'Verdana', 'Tahoma', 'Segoe UI', 'Consolas', 'Courier New'];
 const SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72];
 const ZOOMS = [0.25, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 3, 4];
@@ -32,7 +32,7 @@ export class App {
   fileName = '새 문서.docx';
   fileHandle: FileSystemFileHandle | undefined;
   filePath: string | undefined; // desktop shell
-  fit: 'width' | 'page' | null = null;
+  fit: 'width' | 'page' | 'text' | null = null;
   showRuler = true;
   showOutline = true;
   showRibbon = true;
@@ -114,13 +114,15 @@ export class App {
     this.syncRulers();
   }
 
-  private fitZoom(kind: 'width' | 'page') {
+  private fitZoom(kind: 'width' | 'page' | 'text') {
     if (!this.doc) return 1;
     const sc = $('scroll-container');
     const g = this.editor.geometry();
     const zw = (sc.clientWidth - 48) / (g.W * PX);
     const zh = (sc.clientHeight - 32) / (g.H * PX);
-    return Math.max(0.2, kind === 'width' ? zw : Math.min(zw, zh));
+    // Text width: the text column (page minus margins) fills the window.
+    const zt = (sc.clientWidth - 48) / ((g.CW + 24) * PX);
+    return Math.max(0.2, kind === 'width' ? zw : kind === 'text' ? zt : Math.min(zw, zh));
   }
 
   private zoomDefault() {
@@ -145,13 +147,14 @@ export class App {
   /** Enable state of ribbon buttons and the view checkboxes. */
   syncRibbon() {
     document.querySelectorAll<HTMLElement>('#ribbon [data-cmd]').forEach((b) => b.classList.toggle('disabled', !this.cmd.enabled(b.dataset.cmd!)));
+    document.querySelectorAll<HTMLElement>('[data-toggle]').forEach((b) => b.classList.toggle('active', this.cmd.checked(b.dataset.cmd!)));
     document.querySelectorAll<HTMLInputElement>('[data-check]').forEach((cb) => { cb.checked = this.cmd.checked(cb.dataset.check!); });
     $('tb-marks').classList.toggle('active', this.editor.showMarks);
   }
 
   syncStatus() {
     const n = this.editor.pages;
-    $('sb-page').textContent = this.doc ? `페이지 ${Math.min(n, this.editor.caretPage())}/${n}` : '페이지 0/0';
+    $('sb-page').textContent = !this.doc ? '페이지 0/0' : this.editor.mode === 'web' ? '웹 모양' : `페이지 ${Math.min(n, this.editor.caretPage())}/${n}`;
     $('sb-zoom-val').textContent = Math.round(this.editor.zoom * 100) + '%';
     const zs = $<HTMLInputElement>('zoom-slider');
     if (document.activeElement !== zs) zs.value = String(Math.round(this.editor.zoom * 100));
@@ -301,7 +304,8 @@ export class App {
   }
 
   syncRulers() {
-    if (!this.doc || !this.showRuler) return;
+    $('editor-area').classList.toggle('no-ruler', !this.showRuler || this.editor.mode === 'web');
+    if (!this.doc || !this.showRuler || this.editor.mode === 'web') return;
     const g = this.editor.geometry();
     const st = this.caretFmt();
     const p = st ? this.doc.para(st.pi) : null;
@@ -558,8 +562,8 @@ export class App {
     // view
     c.register('view:zoom-in', { run: () => this.stepZoom(1), enabled: this.hasDoc });
     c.register('view:zoom-out', { run: () => this.stepZoom(-1), enabled: this.hasDoc });
-    c.register('view:zoom-width', { run: () => this.setZoom(this.fitZoom('width'), 'width'), enabled: this.hasDoc, checked: () => this.fit === 'width' });
-    c.register('view:zoom-page', { run: () => this.setZoom(this.fitZoom('page'), 'page'), enabled: this.hasDoc, checked: () => this.fit === 'page' });
+    c.register('view:zoom-width', { run: () => this.setZoom(this.fitZoom('width'), 'width'), enabled: () => this.hasDoc() && ed.mode === 'print', checked: () => this.fit === 'width' });
+    c.register('view:zoom-page', { run: () => this.setZoom(this.fitZoom('page'), 'page'), enabled: () => this.hasDoc() && ed.mode === 'print', checked: () => this.fit === 'page' });
     c.register('view:zoom-100', { run: () => this.setZoom(1), enabled: this.hasDoc });
     c.register('view:toggle-ruler', { run: () => { this.showRuler = !this.showRuler; $('editor-area').classList.toggle('no-ruler', !this.showRuler); this.syncRulers(); }, checked: () => this.showRuler });
     c.register('view:toggle-outline', { run: () => { this.showOutline = !this.showOutline; $('outline-panel').classList.toggle('hidden', !this.showOutline); if (this.fit) this.setZoom(this.fitZoom(this.fit), this.fit); }, checked: () => this.showOutline });
@@ -655,7 +659,30 @@ export class App {
       });
     }
     // Word-style additions: views, insert, font dialog, case, review, layout, table alignment
-    c.register('view:print-layout', { run: () => {}, checked: () => true });
+    const setMode = (m: 'print' | 'web') => {
+      ed.setMode(m);
+      if (m === 'print' && this.fit) this.setZoom(this.fitZoom(this.fit), this.fit);
+      this.syncRulers();
+      this.syncStatus();
+      this.syncRibbon();
+      this.message(m === 'web' ? '웹 모양: 페이지 구분 없이 창 너비에 맞춰 보여 줍니다' : '인쇄 모양');
+    };
+    c.register('view:print-layout', { run: () => setMode('print'), enabled: this.hasDoc, checked: () => ed.mode === 'print' }, 'ctrl+alt+p');
+    c.register('view:web-layout', { run: () => setMode('web'), enabled: this.hasDoc, checked: () => ed.mode === 'web' }, 'ctrl+alt+w');
+    c.register('view:zoom-dialog', {
+      run: () => zoomDialog(ed.zoom, ed.mode === 'web', (z) => {
+        if (z.kind === 'percent') this.setZoom(z.value);
+        else this.setZoom(this.fitZoom(z.kind), z.kind);
+      }),
+      enabled: this.hasDoc,
+    });
+    c.register('view:zoom-text', { run: () => this.setZoom(this.fitZoom('text'), 'text'), enabled: () => this.hasDoc() && ed.mode === 'print', checked: () => this.fit === 'text' });
+    const switchWindows = async (at: HTMLElement) => {
+      const list = await listWindows();
+      menuPopover(at, windowMenuItems(list, (id) => focusWindow(id).catch((e) => toast('창 전환: ' + e)), () => this.cmd.run('window:new')));
+    };
+    c.register('window:switch', { run: () => switchWindows(anchor('tb-windows')) });
+    c.register('window:new', { run: () => openNewWindow().catch((e) => toast('새 창: ' + e)) }, 'ctrl+alt+n');
     c.register('view:toggle-ribbon', { run: () => { this.showRibbon = !this.showRibbon; $('ribbon').classList.toggle('collapsed', !this.showRibbon); if (this.fit) this.setZoom(this.fitZoom(this.fit), this.fit); }, checked: () => this.showRibbon }, 'ctrl+alt+r');
     c.register('view:gridlines', { run: () => { this.showGridlines = !this.showGridlines; ed.root.classList.toggle('no-gridlines', !this.showGridlines); }, checked: () => this.showGridlines });
     c.register('insert:line-break', { run: () => this.structural((pos) => d().insertLineBreak(pos)), enabled: this.hasDoc });
@@ -832,6 +859,23 @@ export class App {
 
   pageNumberTotal = false;
 
+  /** View ▸ 창 전환 submenu: one entry per open window. */
+  private async fillWindowList(host: HTMLElement, close: () => void) {
+    const list = await listWindows();
+    host.innerHTML = '';
+    for (const it of windowMenuItems(list, (id) => focusWindow(id).catch((e) => toast('창 전환: ' + e)), () => this.cmd.run('window:new'))) {
+      if (it.sep) { const d = document.createElement('div'); d.className = 'md-sep'; host.appendChild(d); continue; }
+      const row = document.createElement('div');
+      row.className = 'md-item';
+      row.innerHTML = '<span class="md-label"></span><span class="md-shortcut"></span>';
+      row.querySelector('.md-label')!.textContent = it.label ?? '';
+      row.querySelector('.md-shortcut')!.textContent = /Mac/.test(navigator.platform) ? (it.shortcut ?? '').replace('Ctrl+', '⌘').replace('Alt+', '⌥') : it.shortcut ?? '';
+      row.addEventListener('mousedown', (e) => e.preventDefault());
+      row.addEventListener('click', () => { close(); it.action?.(); });
+      host.appendChild(row);
+    }
+  }
+
   /** Keep the caret where it is while a dialog or popover has focus. */
   private keepCaret() { if (!this.editor.hf) this.editor.rememberSelection(); }
 
@@ -908,10 +952,14 @@ export class App {
     // Menus: click to open, hover to switch (like HOP's menu bar).
     const menus = document.querySelectorAll<HTMLElement>('.menu-item');
     const closeMenus = () => menus.forEach((m) => m.classList.remove('open'));
-    const refreshMenu = (m: HTMLElement) => m.querySelectorAll<HTMLElement>('.md-item[data-cmd]').forEach((it) => {
-      it.classList.toggle('disabled', !this.cmd.enabled(it.dataset.cmd!));
-      it.classList.toggle('checked', this.cmd.checked(it.dataset.cmd!));
-    });
+    const refreshMenu = (m: HTMLElement) => {
+      m.querySelectorAll<HTMLElement>('.md-item[data-cmd]').forEach((it) => {
+        it.classList.toggle('disabled', !this.cmd.enabled(it.dataset.cmd!));
+        it.classList.toggle('checked', this.cmd.checked(it.dataset.cmd!));
+      });
+      const wl = m.querySelector<HTMLElement>('#window-list');
+      if (wl) this.fillWindowList(wl, closeMenus);
+    };
     menus.forEach((m) => {
       m.querySelector('.menu-title')!.addEventListener('mousedown', (e) => {
         e.preventDefault();
@@ -1071,7 +1119,10 @@ export class App {
       const pos = { pi: last, off: this.doc.lengthOf(this.doc.para(last)!) };
       this.editor.setRange({ start: pos, end: pos });
     });
-    new ResizeObserver(() => { if (this.fit) this.setZoom(this.fitZoom(this.fit), this.fit); else this.syncRulers(); }).observe(sc);
+    new ResizeObserver(() => {
+      if (this.editor.mode === 'web') { this.editor.paginate(); return; } // text re-wraps to the window
+      if (this.fit) this.setZoom(this.fitZoom(this.fit), this.fit); else this.syncRulers();
+    }).observe(sc);
     window.addEventListener('beforeunload', (e) => { this.editor.commit(); if (this.doc?.dirty) e.preventDefault(); });
   }
 

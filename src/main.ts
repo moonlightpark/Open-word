@@ -1,11 +1,16 @@
 import { App } from './ui/app';
-import { launchFiles } from './ui/shell';
+import { launchFiles, readPath, windowOpenRequest } from './ui/shell';
 
 const app = new App();
 
 // Open a document passed as ?file=URL (handy for demos), otherwise start with a blank document.
 const file = new URLSearchParams(location.search).get('file');
 (async () => {
+  // A window opened with View ▸ New Window: its document, or a blank one.
+  const req = windowOpenRequest();
+  if (typeof req === 'string') {
+    try { const f = await readPath(req); await app.open(f.bytes, f.name, undefined, f.path); return; } catch (e) { console.error(e); }
+  }
   const launched = await launchFiles().catch(() => []);
   if (launched[0]) {
     await app.open(launched[0].bytes, launched[0].name, undefined, launched[0].path);

@@ -94,3 +94,67 @@ export function pickImage(input: HTMLInputElement): Promise<File | null> {
     input.click();
   });
 }
+
+// ---------------------------------------------------------------- windows (View ▸ Switch Windows)
+
+export interface WindowInfo { id: string; title: string; current: boolean }
+
+// Browser: tabs of the same browser find each other over a BroadcastChannel.
+const tabId = Math.random().toString(36).slice(2, 10);
+let channel: BroadcastChannel | null = null;
+
+function browserChannel(): BroadcastChannel | null {
+  if (isDesktop() || typeof BroadcastChannel === 'undefined') return null;
+  if (!channel) {
+    channel = new BroadcastChannel('oword-windows');
+    channel.onmessage = (e) => {
+      const m = e.data as { type: string; id?: string; from?: string };
+      if (m.type === 'who') channel!.postMessage({ type: 'here', id: tabId, title: document.title, to: m.from });
+      if (m.type === 'focus' && m.id === tabId) window.focus();
+    };
+  }
+  return channel;
+}
+browserChannel();
+
+export async function listWindows(): Promise<WindowInfo[]> {
+  if (isDesktop()) {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    const me = getCurrentWindow().label;
+    const list = await invoke<{ label: string; title: string }[]>('list_windows');
+    return list.map((w) => ({ id: w.label, title: w.title || 'Oword', current: w.label === me }));
+  }
+  const ch = browserChannel();
+  const out: WindowInfo[] = [{ id: tabId, title: document.title, current: true }];
+  if (!ch) return out;
+  const listen = (e: MessageEvent) => {
+    const m = e.data as { type: string; id: string; title: string; to: string };
+    if (m.type === 'here' && m.to === tabId && !out.some((w) => w.id === m.id)) out.push({ id: m.id, title: m.title, current: false });
+  };
+  ch.addEventListener('message', listen);
+  ch.postMessage({ type: 'who', from: tabId });
+  await new Promise((r) => setTimeout(r, 150));
+  ch.removeEventListener('message', listen);
+  return out;
+}
+
+export async function focusWindow(id: string) {
+  if (isDesktop()) { await invoke('focus_window', { label: id }); return; }
+  browserChannel()?.postMessage({ type: 'focus', id });
+}
+
+/** Open another editor window (desktop) or tab (browser), optionally with a document path. */
+export async function openNewWindow(path?: string) {
+  if (isDesktop()) { await invoke('new_window', { path: path ?? null }); return; }
+  window.open(location.pathname, '_blank');
+}
+
+/** Desktop windows opened with New Window receive the document to open (or null for a blank one). */
+export function windowOpenRequest(): string | null | undefined {
+  return (window as unknown as { __OWORD_OPEN__?: string | null }).__OWORD_OPEN__;
+}
+
+export async function readPath(path: string): Promise<OpenedFile> {
+  const f = await invoke<NativeFile>('read_document', { path });
+  return { name: f.name, path: f.path, bytes: new Uint8Array(f.bytes) };
+}

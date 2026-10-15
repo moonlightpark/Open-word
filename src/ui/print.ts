@@ -5,6 +5,8 @@ import { DocEditor } from './editor';
 export function printDocument(editor: DocEditor) {
   const root = document.getElementById('print-root')!;
   const savedGap = editor.gapPt;
+  const savedMode = editor.mode;
+  editor.mode = 'print'; // printing always uses pages, also from web layout
   editor.gapPt = 0;
   editor.paginate();
   const g = editor.geometry();
@@ -41,6 +43,7 @@ export function printDocument(editor: DocEditor) {
     root.appendChild(sheet);
   }
   editor.gapPt = savedGap;
+  editor.mode = savedMode;
   const done = () => { root.innerHTML = ''; editor.paginate(); window.removeEventListener('afterprint', done); };
   window.addEventListener('afterprint', done);
   setTimeout(() => { window.print(); setTimeout(() => { if (root.innerHTML) done(); }, 500); }, 50);

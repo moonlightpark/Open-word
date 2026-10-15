@@ -56,7 +56,8 @@
     <div class="menu-item" data-menu="view">
       <span class="menu-title">보기</span>
       <div class="menu-dropdown">
-        <div class="md-item checked" data-cmd="view:print-layout"><span class="md-check"></span><span class="md-label">인쇄 모양</span></div>
+        <div class="md-item" data-cmd="view:print-layout"><span class="md-check"></span><span class="md-label">인쇄 모양</span><span class="md-shortcut">Ctrl+Alt+P</span></div>
+        <div class="md-item" data-cmd="view:web-layout"><span class="md-check"></span><span class="md-label">웹 모양</span><span class="md-shortcut">Ctrl+Alt+W</span></div>
         <div class="md-sep"></div>
         <div class="md-item" data-cmd="view:toggle-ribbon"><span class="md-check"></span><span class="md-label">리본</span><span class="md-shortcut">Ctrl+Alt+R</span></div>
         <div class="md-item" data-cmd="view:toggle-ruler"><span class="md-check"></span><span class="md-label">눈금자</span></div>
@@ -66,16 +67,15 @@
         <div class="md-sep"></div>
         <div class="md-item" data-cmd="hf:edit-header"><span class="md-label">머리글 및 바닥글</span></div>
         <div class="md-sep"></div>
-        <div class="md-item has-sub"><span class="md-label">확대/축소</span><span class="md-arrow">▸</span>
-          <div class="menu-dropdown">
-            <div class="md-item" data-cmd="view:zoom-in"><span class="md-label">확대</span></div>
-            <div class="md-item" data-cmd="view:zoom-out"><span class="md-label">축소</span></div>
-            <div class="md-sep"></div>
-            <div class="md-item" data-cmd="view:zoom-100"><span class="md-label">100%</span></div>
-            <div class="md-item" data-cmd="view:zoom-width"><span class="md-check"></span><span class="md-label">페이지 너비</span></div>
-            <div class="md-item" data-cmd="view:zoom-page"><span class="md-check"></span><span class="md-label">한 페이지</span></div>
-          </div>
+        <div class="md-item" data-cmd="view:zoom-dialog"><span class="md-label">확대/축소…</span></div>
+        <div class="md-item" data-cmd="view:zoom-in"><span class="md-label">확대</span></div>
+        <div class="md-item" data-cmd="view:zoom-out"><span class="md-label">축소</span></div>
+        <div class="md-item" data-cmd="view:zoom-100"><span class="md-label">100%</span></div>
+        <div class="md-sep"></div>
+        <div class="md-item has-sub"><span class="md-label">창 전환</span><span class="md-arrow">▸</span>
+          <div class="menu-dropdown" id="window-list"></div>
         </div>
+        <div class="md-item" data-cmd="window:new"><span class="md-label">새 창</span><span class="md-shortcut">Ctrl+Alt+N</span></div>
       </div>
     </div>
     <div class="menu-item" data-menu="insert">
@@ -409,7 +409,8 @@
       <div class="rb-panel" data-panel="view">
         <div class="rb-group">
           <div class="rb-row">
-            <button class="rb-big active" data-cmd="view:print-layout" title="인쇄 모양"><span class="tb-icon" data-icon="page"></span><span>인쇄 모양</span></button>
+            <button class="rb-big" data-toggle data-cmd="view:print-layout" title="인쇄 모양 (Ctrl+Alt+P)"><span class="tb-icon" data-icon="page"></span><span>인쇄 모양</span></button>
+            <button class="rb-big" data-toggle data-cmd="view:web-layout" title="웹 모양 (Ctrl+Alt+W)"><span class="tb-icon" data-icon="web"></span><span>웹 모양</span></button>
           </div>
           <div class="rb-label">보기</div>
         </div>
@@ -424,11 +425,22 @@
         </div>
         <div class="rb-group">
           <div class="rb-row">
-            <button class="rb-big" data-cmd="view:zoom-100" title="100%"><span class="tb-icon" data-icon="zoom"></span><span>100%</span></button>
-            <button class="rb-big" data-cmd="view:zoom-page" title="한 페이지"><span class="tb-icon" data-icon="page"></span><span>한 페이지</span></button>
-            <button class="rb-big" data-cmd="view:zoom-width" title="페이지 너비"><span class="tb-icon" data-icon="width"></span><span>페이지<br>너비</span></button>
+            <button class="rb-big" data-cmd="view:zoom-dialog" title="확대/축소…"><span class="tb-icon" data-icon="zoom"></span><span>확대/<br>축소</span></button>
+            <button class="rb-big" data-cmd="view:zoom-100" title="100%"><span class="tb-icon" data-icon="hundred"></span><span>100%</span></button>
+            <div class="rb-col">
+              <button class="rb-small" data-toggle data-cmd="view:zoom-page" title="한 페이지"><span class="tb-icon sm" data-icon="page"></span>한 페이지</button>
+              <button class="rb-small" data-toggle data-cmd="view:zoom-width" title="페이지 너비"><span class="tb-icon sm" data-icon="width"></span>페이지 너비</button>
+              <button class="rb-small" data-toggle data-cmd="view:zoom-text" title="텍스트 너비"><span class="tb-icon sm" data-icon="textwidth"></span>텍스트 너비</button>
+            </div>
           </div>
           <div class="rb-label">확대/축소</div>
+        </div>
+        <div class="rb-group">
+          <div class="rb-row">
+            <button class="rb-big" data-cmd="window:new" title="새 창 (Ctrl+Alt+N)"><span class="tb-icon" data-icon="newwin"></span><span>새 창</span></button>
+            <button class="rb-big" id="tb-windows" data-cmd="window:switch" title="창 전환"><span class="tb-icon" data-icon="windows"></span><span>창 전환 ▾</span></button>
+          </div>
+          <div class="rb-label">창</div>
         </div>
       </div>
       <!-- 표 레이아웃 (표 안에 커서가 있을 때) -->
@@ -541,6 +553,8 @@
     <span id="sb-message" class="sb-item sb-msg"></span>
     <span class="sb-spacer"></span>
     <button class="sb-zbtn" data-cmd="view:toggle-marks" title="편집 기호">¶</button>
+    <button class="sb-zbtn sb-view" data-toggle data-cmd="view:print-layout" title="인쇄 모양"><span class="tb-icon sm" data-icon="page"></span></button>
+    <button class="sb-zbtn sb-view" data-toggle data-cmd="view:web-layout" title="웹 모양"><span class="tb-icon sm" data-icon="web"></span></button>
     <button class="sb-zbtn" data-cmd="view:zoom-out" title="축소">−</button>
     <input id="zoom-slider" type="range" min="20" max="500" step="1" value="100" title="확대/축소">
     <button class="sb-zbtn" data-cmd="view:zoom-in" title="확대">+</button>

@@ -674,6 +674,65 @@ export async function runSelfTest(app: App) {
     run('view:toggle-outline');
     run('view:zoom-100');
   });
+  await check('보기: 웹 모양 ↔ 인쇄 모양 (선택 유지, 인쇄는 페이지로)', async () => {
+    const pi = find('2.1 정렬', true);
+    caret(pi, 2);
+    run('view:web-layout');
+    eq([ed.mode, ed.pages, ed.frames.children.length], ['web', 1, 0], '웹 모양');
+    eq(document.getElementById('sb-page')!.textContent, '웹 모양', '상태 표시줄');
+    expect(document.getElementById('editor-area')!.classList.contains('no-ruler'), '눈금자 숨김');
+    await sleep(120); // a scrollbar may appear and re-wrap the text once
+    const sc = document.getElementById('scroll-container')!;
+    const want = sc.clientWidth - 4 - 48 * ed.zoom, got = ed.root.getBoundingClientRect().width;
+    expect(Math.abs(got - want) < 6, `창 너비에 맞춤 (${Math.round(got)} ≠ ${Math.round(want)})`);
+    eq(ed.getRange()?.start, { pi, off: 2 }, '선택 유지');
+    expect(!app.cmd.enabled('view:zoom-page'), '웹 모양에서 페이지 맞춤 비활성');
+    type('웹');
+    ed.commit();
+    expect(texts()[pi].startsWith('2.웹1'), '웹 모양에서 입력');
+    const real = window.print;
+    window.print = () => {};
+    run('file:print');
+    await sleep(20);
+    eq(document.getElementById('print-root')!.querySelectorAll('.print-page').length > 5, true, '웹 모양에서도 페이지로 인쇄');
+    window.print = real;
+    document.getElementById('print-root')!.innerHTML = '';
+    eq(ed.mode, 'web', '인쇄 뒤 웹 모양 유지');
+    run('hf:edit-header');
+    eq([ed.mode, !!ed.hf], ['print', true], '머리글 편집은 인쇄 모양으로');
+    run('hf:close');
+    run('view:web-layout');
+    run('view:print-layout');
+    expect(ed.mode === 'print' && ed.pages > 5 && ed.frames.children.length === ed.pages, '인쇄 모양 복귀');
+    run('edit:undo');
+  });
+  await check('보기 ▸ 확대/축소… 대화상자', () => {
+    for (const [v, check] of [['200', (z: number) => z === 2], ['75', (z: number) => z === 0.75], ['page', () => app.fit === 'page'], ['text', () => app.fit === 'text']] as [string, (z: number) => boolean][]) {
+      run('view:zoom-dialog');
+      const d = document.querySelector('.dlg')!;
+      d.querySelector<HTMLInputElement>(`input[value="${v}"]`)!.click();
+      Array.from(d.querySelectorAll('button')).find((b) => b.textContent === '확인')!.click();
+      expect(check(ed.zoom), `${v}: ${ed.zoom}`);
+    }
+    run('view:zoom-dialog');
+    const d = document.querySelector('.dlg')!;
+    const inp = d.querySelector<HTMLInputElement>('[name="pct"]')!;
+    inp.value = '133';
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    Array.from(d.querySelectorAll('button')).find((b) => b.textContent === '확인')!.click();
+    eq(Math.round(ed.zoom * 100), 133, '사용자 지정');
+    run('view:zoom-100');
+  });
+  await check('보기 ▸ 창 전환 (창 목록, 새 창)', async () => {
+    const m = document.querySelector<HTMLElement>('[data-menu="view"] .menu-title')!;
+    m.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await sleep(300);
+    const items = Array.from(document.querySelectorAll('#window-list .md-item')).map((x) => x.textContent ?? '');
+    expect(items.some((t) => t.startsWith('✓ 1.') && t.includes(document.title.replace(/^● /, '').replace(/ — Oword$/, ''))), '현재 창: ' + items.join(' | '));
+    expect(items.some((t) => t.startsWith('새 창')), '새 창 항목');
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(app.cmd.has('window:new') && app.cmd.has('window:switch'), '명령');
+  });
   await check('쪽 설정: 가로 방향·여백 → 다시 배치', () => {
     const ps = doc().pageSetup();
     const pages = ed.pages;

@@ -50,6 +50,11 @@ export const ICONS: Record<string, string> = {
   header: S('<rect x="4" y="3" width="16" height="18" rx="1" fill="#fff"/><rect x="4" y="3" width="16" height="5" fill="#cfe0fb" stroke="#2b6fd6"/><path d="M8 12h8M8 15h8M8 18h5"/>'),
   footer: S('<rect x="4" y="3" width="16" height="18" rx="1" fill="#fff"/><rect x="4" y="16" width="16" height="5" fill="#cfe0fb" stroke="#2b6fd6"/><path d="M8 7h8M8 10h8M8 13h5"/>'),
   pagenum: S('<rect x="4" y="3" width="16" height="18" rx="1" fill="#fff"/><path d="M8 7h8M8 10h8"/><text x="12" y="19" font-size="7" text-anchor="middle" fill="#2b6fd6" stroke="none" font-family="sans-serif" font-weight="bold">#1</text>'),
+  web: S('<rect x="3" y="4" width="18" height="16" rx="1.5" fill="#fff"/><path d="M3 8h18"/><circle cx="5.5" cy="6" r=".6" fill="#3b4452"/><circle cx="7.5" cy="6" r=".6" fill="#3b4452"/><path d="M6 11h12M6 14h12M6 17h8" stroke="#2b6fd6"/>'),
+  windows: S('<rect x="7" y="3" width="14" height="11" rx="1" fill="#dbe7fb" stroke="#2b6fd6"/><rect x="3" y="9" width="14" height="11" rx="1" fill="#fff"/><path d="M3 12h14"/>'),
+  newwin: S('<rect x="3" y="5" width="15" height="14" rx="1" fill="#fff"/><path d="M3 8h15"/><circle cx="18" cy="17" r="4" fill="#2b6fd6" stroke="none"/><path d="M18 15v4M16 17h4" stroke="#fff"/>'),
+  hundred: S('<rect x="4" y="3" width="16" height="18" rx="1" fill="#fff"/><text x="12" y="15" font-size="7" text-anchor="middle" fill="#2b6fd6" stroke="none" font-family="sans-serif" font-weight="bold">100</text>'),
+  textwidth: S('<rect x="5" y="3" width="14" height="18" rx="1" fill="#fff"/><path d="M8 8h8M8 11h8M8 14h8"/><path d="M2 18h20M5 16l-3 2 3 2M19 16l3 2-3 2" stroke="#2b6fd6"/>'),
   highlight: S('<path d="m14 4 6 6-8 8H6v-6z" fill="#fff"/><path d="m10 8 6 6"/>'),
 };
 

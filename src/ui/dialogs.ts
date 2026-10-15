@@ -521,3 +521,61 @@ export function emojiPopover(anchor: HTMLElement, pick: (s: string) => void) {
   popover(anchor, wrap);
   show(0);
 }
+
+export type ZoomChoice = { kind: 'percent'; value: number } | { kind: 'width' | 'text' | 'page' };
+
+/** 확대/축소 dialog (View ▸ Zoom…), like Word's: presets, fits and a custom percentage. */
+export function zoomDialog(current: number, web: boolean, apply: (c: ZoomChoice) => void) {
+  const pct = Math.round(current * 100);
+  const opt = (v: string, label: string, disabled = false) => `<label class="zoom-opt${disabled ? ' disabled' : ''}"><input type="radio" name="z" value="${v}" ${disabled ? 'disabled' : ''}> ${label}</label>`;
+  const body = html(`
+    <div class="zoom-grid">
+      <div class="zoom-col">
+        <div class="dlg-sect" style="margin-top:0">배율</div>
+        ${opt('200', '200%')}${opt('100', '100%')}${opt('75', '75%')}
+      </div>
+      <div class="zoom-col">
+        <div class="dlg-sect" style="margin-top:0">맞춤</div>
+        ${opt('width', '페이지 너비', web)}${opt('text', '텍스트 너비', web)}${opt('page', '전체 페이지', web)}
+      </div>
+    </div>
+    <div class="zoom-custom"><label class="zoom-opt"><input type="radio" name="z" value="custom"> 사용자 지정:</label>
+      <input type="number" name="pct" min="20" max="500" step="5" value="${pct}"> %</div>
+    <div class="zoom-preview"><div class="zoom-sample">가나다 AaBbCc</div></div>`);
+  const radios = Array.from(body.querySelectorAll<HTMLInputElement>('input[name="z"]'));
+  const input = body.querySelector<HTMLInputElement>('[name="pct"]')!;
+  const sample = body.querySelector<HTMLElement>('.zoom-sample')!;
+  (radios.find((r) => r.value === String(pct)) ?? radios.find((r) => r.value === 'custom'))!.checked = true;
+  const update = () => {
+    const v = radios.find((r) => r.checked)?.value;
+    const p = v && /^\d+$/.test(v) ? Number(v) : v === 'custom' ? Number(input.value) || 100 : pct;
+    if (v && /^\d+$/.test(v)) input.value = v;
+    sample.style.fontSize = Math.max(6, Math.min(40, (p / 100) * 14)) + 'px';
+  };
+  body.addEventListener('change', update);
+  input.addEventListener('input', () => { radios.find((r) => r.value === 'custom')!.checked = true; update(); });
+  update();
+  dialog('확대/축소', body, [
+    { label: '취소' },
+    {
+      label: '확인', primary: true, action: () => {
+        const v = radios.find((r) => r.checked)?.value ?? 'custom';
+        if (v === 'width' || v === 'text' || v === 'page') apply({ kind: v });
+        else {
+          const n = Number(v === 'custom' ? input.value : v);
+          if (!(n >= 20 && n <= 500)) { input.focus(); return false; }
+          apply({ kind: 'percent', value: n / 100 });
+        }
+      },
+    },
+  ]);
+}
+
+/** 창 전환 list (shared by the View menu, the ribbon and the status bar). */
+export function windowMenuItems(list: { id: string; title: string; current: boolean }[], focus: (id: string) => void, newWindow: () => void): MenuItem[] {
+  return [
+    ...list.map((w, i) => ({ label: `${w.current ? '✓ ' : ' '}${i + 1}. ${w.title.replace(/ — Oword$/, '')}`, action: () => { if (!w.current) focus(w.id); } })),
+    { sep: true },
+    { label: '새 창', shortcut: 'Ctrl+Alt+N', action: newWindow },
+  ];
+}

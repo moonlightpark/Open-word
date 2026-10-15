@@ -137,9 +137,14 @@ export class DocEditor {
    * Push blocks that would cross a page bottom to the next page (via --push margins) and build the
    * page frames. Whole paragraphs move, like Word with "keep lines together".
    */
+  /** 인쇄 모양 (pages) or 웹 모양 (text wraps to the window, no pages). */
+  mode: 'print' | 'web' = 'print';
+
   paginate() {
     const doc = this.hooks.doc();
     if (!doc) return;
+    if (this.mode === 'web') { this.layoutWeb(); return; }
+    this.host.classList.remove('web-mode');
     const g = this.geometry();
     this.root.style.left = g.left + 'pt';
     this.root.style.top = g.top + 'pt';
@@ -223,6 +228,42 @@ export class DocEditor {
     this.hooks.layoutChanged();
   }
 
+  /** Web layout: one white surface as wide as the window; tables keep their widths. */
+  private layoutWeb() {
+    if (this.hf) this.exitHF();
+    const sc = this.wrap.closest('#scroll-container') as HTMLElement | null;
+    const availPx = Math.max(320, (sc?.clientWidth ?? 900) - 4);
+    const pad = 18; // pt
+    const wPt = (availPx / this.zoom) * 0.75;
+    this.host.classList.add('web-mode');
+    this.frames.innerHTML = '';
+    for (const b of Array.from(this.root.children) as HTMLElement[]) b.style.removeProperty('--push');
+    this.root.querySelectorAll(':scope > table > tbody > tr.pg-spacer').forEach((r) => r.remove());
+    this.root.classList.toggle('show-marks', this.showMarks);
+    Object.assign(this.root.style, { left: pad + 'pt', top: pad + 'pt', width: wPt - 2 * pad + 'pt' });
+    this.host.style.width = wPt + 'pt';
+    const hPt = this.root.offsetHeight * 0.75 + 2 * pad;
+    this.host.style.height = hPt + 'pt';
+    this.layout = Array.from(this.root.children).filter((c): c is HTMLElement => c instanceof HTMLElement && !c.hidden)
+      .map((el) => ({ el, y: el.offsetTop, h: el.offsetHeight, mt: 0, page: 0, endPage: 0 }));
+    this.pages = 1;
+    this.updateFields(this.layout, Number.MAX_SAFE_INTEGER);
+    this.host.style.transform = `scale(${this.zoom})`;
+    this.wrap.style.width = availPx + 'px';
+    this.wrap.style.height = hPt * (4 / 3) * this.zoom + 'px';
+    this.hooks.layoutChanged();
+  }
+
+  /** Switch between print and web layout, keeping the selection. */
+  setMode(mode: 'print' | 'web') {
+    if (mode === this.mode) return;
+    const r = this.getRange();
+    if (this.hf) this.exitHF();
+    this.mode = mode;
+    this.paginate();
+    if (r) this.setRange(r);
+  }
+
   /** PAGE / NUMPAGES fields in the body show the laid-out values. */
   private updateFields(boxes: BlockBox[], stride: number) {
     for (const b of boxes) {
@@ -284,6 +325,8 @@ export class DocEditor {
   /** Start editing the header or footer of page `page` (1-based), creating it if needed. */
   enterHF(kind: 'header' | 'footer', page: number) {
     const doc = this.doc;
+    // Headers and footers only exist on pages: editing one switches to print layout, as in Word.
+    if (this.mode === 'web') { this.mode = 'print'; this.hooks.layoutChanged(); }
     if (this.hf) this.exitHF();
     this.commit();
     const part = doc.openHeaderFooter(kind, page);
@@ -421,12 +464,12 @@ export class DocEditor {
 
   setZoom(z: number) {
     this.zoom = Math.max(0.2, Math.min(5, z));
-    this.applyZoom();
+    if (this.mode === 'web') this.layoutWeb(); else this.applyZoom();
   }
 
   private applyZoom() {
     const doc = this.hooks.doc();
-    if (!doc) return;
+    if (!doc || this.mode === 'web') return;
     const g = this.geometry();
     this.host.style.transform = `scale(${this.zoom})`;
     this.wrap.style.width = g.W * PX * this.zoom + 'px';
@@ -435,6 +478,7 @@ export class DocEditor {
 
   /** 1-based page of the caret. */
   caretPage(): number {
+    if (this.mode === 'web') return 1;
     const sel = window.getSelection();
     const node = sel?.focusNode;
     if (!node || !this.root.contains(node)) return 1;

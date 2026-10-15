@@ -318,3 +318,17 @@ kbd { background: #f1f3f6; border: 1px solid #ccd; border-radius: 3px; padding: 
 .emoji-grid button { width: 32px; height: 32px; border: none; border-radius: 5px; background: none; cursor: pointer; font-size: 21px; padding: 0; font-family: 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif; }
 .emoji-grid button:hover { background: var(--ui-hover); }
 .emoji-hint { margin-top: 6px; font-size: 11px; color: var(--color-text-secondary); text-align: right; }
+
+/* ---------- web layout, zoom dialog, view buttons ---------- */
+#page-host.web-mode { background: #fff; box-shadow: var(--page-shadow); }
+#page-host.web-mode #page-frames { display: none; }
+#scroll-content:has(#page-host.web-mode) { padding: 0; }
+.sb-view { display: inline-flex; align-items: center; justify-content: center; width: 26px; }
+.sb-view.active { background: var(--ui-active); }
+.zoom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 30px; }
+.zoom-col { display: flex; flex-direction: column; gap: 6px; }
+.zoom-opt { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.zoom-opt.disabled { color: #a8adb5; cursor: default; }
+.zoom-custom { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; }
+.zoom-custom input[type=number] { width: 70px !important; }
+.zoom-preview { margin-top: 14px; height: 70px; border: 1px solid var(--ui-border); border-radius: 4px; background: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
