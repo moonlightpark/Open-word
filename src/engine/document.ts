@@ -1100,6 +1100,26 @@ export class DocxDocument {
     });
   }
 
+  /** Text direction of the cells that contain paragraphs `pis` (w:tcPr/w:textDirection). */
+  setCellTextDirection(pis: number[], dir: TextDir) {
+    const cells = [...new Set(pis.map((i) => this.cellOf(i)?.tc).filter((c): c is Element => !!c))];
+    if (!cells.length) return;
+    this.transact('텍스트 방향', [], () => {
+      for (const tc of cells) {
+        let tcPr = child(tc, 'w:tcPr');
+        if (!tcPr) { tcPr = create(this.xml, 'w:tcPr'); tc.insertBefore(tcPr, tc.firstChild); }
+        if (dir === 'lrTb') removeChild(tcPr, 'w:textDirection');
+        else setAttr(ensureOrdered(tcPr, 'w:textDirection', TCPR_ORDER), 'w:val', dir);
+      }
+    });
+  }
+
+  cellTextDirection(pi: number): TextDir | null {
+    const tc = this.cellOf(pi)?.tc;
+    if (!tc) return null;
+    return textDir(wa(path(tc, 'w:tcPr', 'w:textDirection'), 'val'));
+  }
+
   cellPrXml(pi: number): string {
     const pr = path(this.cellOf(pi)?.tc, 'w:tcPr');
     return pr ? new XMLSerializer().serializeToString(pr) : '';
@@ -1308,4 +1328,16 @@ export class DocxDocument {
 
   /** Re-serialize the main part (handy for tests). */
   xmlText() { return serializeXml(this.xml); }
+}
+
+/** Cell text direction as Word's UI offers it: horizontal, top-to-bottom, bottom-to-top. */
+export type TextDir = 'lrTb' | 'tbRl' | 'btLr';
+
+/** Normalise a w:textDirection value (transitional and strict spellings). */
+export function textDir(v: string | null | undefined): TextDir {
+  switch (v) {
+    case 'tbRl': case 'tbRlV': case 'tbLrV': case 'rl': case 'rlV': return 'tbRl';
+    case 'btLr': case 'lr': case 'lrV': return 'btLr';
+    default: return 'lrTb';
+  }
 }

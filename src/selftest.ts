@@ -324,6 +324,33 @@ export async function runSelfTest(app: App) {
     caret(find('문서 끝.'), 0);
     expect(!app.cmd.enabled('table:valign-top'), '표 밖에서 활성화됨');
   });
+  await check('표 텍스트 방향: 가로 → 세로 → 아래에서 위로 (메뉴·리본)', async () => {
+    const pi = find('새 표');
+    caret(pi, 1);
+    run('table:textdir-tbRl');
+    let td = ed.paragraphElement(find('새 표'))!.closest('td')!;
+    eq(getComputedStyle(td).writingMode, 'vertical-rl', '세로 쓰기');
+    const pr = ed.paragraphElement(find('새 표'))!.getBoundingClientRect();
+    expect(pr.height > pr.width, `글줄이 세로가 아님 ${Math.round(pr.width)}×${Math.round(pr.height)}`);
+    eq(doc().cellTextDirection(find('새 표')), 'tbRl', '모델');
+    expect(app.cmd.checked('table:textdir-tbRl'), '메뉴 체크 표시');
+    await frame();
+    expect(document.getElementById('btn-textdir')!.classList.contains('active'), '리본 단추 상태');
+    // Typing still goes into the vertical cell.
+    caret(find('새 표'), 0);
+    type('세로');
+    ed.commit();
+    expect(texts()[find('새 표')].startsWith('세로'), '세로 셀에 입력');
+    run('edit:undo');
+    document.getElementById('btn-textdir')!.click(); // the ribbon button cycles to bottom-to-top
+    td = ed.paragraphElement(find('새 표'))!.closest('td')!;
+    expect(td.classList.contains('w-vert-up'), '아래에서 위로');
+    eq(doc().undoLabel(), '텍스트 방향', '실행 취소 항목');
+    run('table:textdir'); // back to horizontal
+    td = ed.paragraphElement(find('새 표'))!.closest('td')!;
+    eq(getComputedStyle(td).writingMode, 'horizontal-tb', '가로로 복귀');
+    expect(!doc().cellPrXml(find('새 표')).includes('textDirection'), 'textDirection 제거');
+  });
   await check('표 테두리 끌기: 칸 너비', async () => {
     const td = ed.paragraphElement(find('새 표'))!.closest('td')!;
     const table = td.closest('table')!;

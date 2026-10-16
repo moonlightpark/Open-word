@@ -271,6 +271,14 @@ def features():
     t.cell(3, 1).text = 'B4'; t.cell(3, 2).text = 'C4'
     d = t.cell(3, 3); d.text = '아래 정렬'; d.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.BOTTOM
     t.rows[3].height = Cm(1.5)
+    doc.add_paragraph('텍스트 방향: 가로, 세로(위에서 아래로), 세로(아래에서 위로)')
+    t = doc.add_table(rows=1, cols=3); t.style = 'Table Grid'
+    for i, (text, d) in enumerate([('가로 글자', None), ('세로 쓰기 ABC', 'tbRl'), ('아래에서 위로', 'btLr')]):
+        cell = t.cell(0, i); cell.text = text
+        if d:
+            td = OxmlElement('w:textDirection'); td.set(qn('w:val'), d)
+            cell._tc.get_or_add_tcPr().append(td)
+    t.rows[0].height = Cm(3)
     doc.add_heading('4.3 중첩 표와 테두리 없는 가운데 표', level=2)
     t = doc.add_table(rows=1, cols=2); t.style = 'Table Grid'
     t.cell(0, 0).text = '바깥 표의 셀'

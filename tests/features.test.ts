@@ -51,7 +51,7 @@ function inventory(doc: DocxDocument) {
 describe('feature document: reading', () => {
   it('loads every construct', async () => {
     const doc = await load();
-    expect(inventory(doc)).toEqual({ tables: 6, drawings: 3, fldChar: 9, fldSimple: 1, hyperlinks: 6, bookmarks: 4, ins: 1, del: 1, comments: 1, sdt: 1, footnotes: 1, sym: 2, sectPr: 2, math: 1 });
+    expect(inventory(doc)).toEqual({ tables: 7, drawings: 3, fldChar: 9, fldSimple: 1, hyperlinks: 6, bookmarks: 4, ins: 1, del: 1, comments: 1, sdt: 1, footnotes: 1, sym: 2, sectPr: 2, math: 1 });
     expect(doc.outline().map((o) => o.text)).toEqual(expect.arrayContaining(['1. 글자 모양', '1.4 색과 형광펜', '4.4 여러 쪽에 걸친 긴 표', '9. 긴 본문']));
     expect(doc.outline().find((o) => o.text === '2.1 정렬')!.level).toBe(1);
   });
@@ -146,7 +146,7 @@ describe('feature document: rendering', () => {
     const doc = await load();
     const { root } = render(doc);
     const tables = Array.from(root.querySelectorAll<HTMLTableElement>(':scope > table'));
-    expect(tables).toHaveLength(5);
+    expect(tables).toHaveLength(6);
     const merged = tables[1];
     const cell = (t: string) => Array.from(merged.querySelectorAll('td')).find((td) => td.textContent === t)!;
     expect(cell('가로 병합 (2칸)').colSpan).toBe(2);
@@ -156,12 +156,14 @@ describe('feature document: rendering', () => {
     expect(cell('아래 정렬').style.verticalAlign).toBe('bottom');
     expect(merged.querySelectorAll('td')).toHaveLength(10); // 16 grid cells minus spans and vertical continuations
     expect(tableGrid(doc.body.getElementsByTagNameNS(W, 'tbl')[1]).flat().filter((c) => c.vmerge === 'continue')).toHaveLength(3);
-    const nested = tables[2].querySelector('td table') as HTMLTableElement;
+    // Text direction: top-to-bottom and bottom-to-top cells.
+    expect(Array.from(tables[2].querySelectorAll('td')).map((td) => td.className)).toEqual(['', 'w-vert', 'w-vert-up']);
+    const nested = tables[3].querySelector('td table') as HTMLTableElement;
     expect(nested.style.width).toBe('100%');
-    expect(tables[3].classList.contains('nogrid')).toBe(true);
-    expect(tables[3].style.alignSelf).toBe('center');
+    expect(tables[4].classList.contains('nogrid')).toBe(true);
+    expect(tables[4].style.alignSelf).toBe('center');
     expect(tables[0].querySelector('td')!.style.backgroundColor).toBe('rgb(217, 226, 243)');
-    expect(tables[4].rows).toHaveLength(41);
+    expect(tables[5].rows).toHaveLength(41);
   });
 
   it('renders objects, fields, links, revisions and comments', async () => {
@@ -307,6 +309,17 @@ describe('feature document: editing keeps everything else', () => {
     doc.undo();
     expect(doc.undoLabel()).toBe(undoDepth);
     expect(doc.columnWidths(doc.cellOf(find(doc, '매출'))!.tbl)).toEqual([3000, 1000, 1500, 1500, 2000]);
+    // Cell text direction: written in schema order (before w:vAlign) and survives a reload.
+    const sales = find(doc, '매출');
+    doc.setCellVAlign([sales], 'center');
+    doc.setCellTextDirection([sales], 'tbRl');
+    expect(doc.cellTextDirection(sales)).toBe('tbRl');
+    expect(doc.cellPrXml(sales)).toMatch(/<w:textDirection w:val="tbRl"\/><w:vAlign w:val="center"\/>/);
+    const rd = await reload(doc);
+    expect(rd.cellTextDirection(find(rd, '매출'))).toBe('tbRl');
+    doc.setCellTextDirection([sales], 'lrTb');
+    expect(doc.cellPrXml(sales)).not.toContain('textDirection');
+    expect(doc.cellTextDirection(find(doc, '굵게, 기울임'))).toBeNull();
     // Merged table: deleting a column that a gridSpan crosses shrinks the span.
     const m = find(doc, '가로 병합');
     const mt = doc.cellOf(m)!.tbl;

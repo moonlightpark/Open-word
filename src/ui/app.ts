@@ -1,6 +1,6 @@
 // Application controller: document lifecycle, command registration, UI state sync.
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { DocxDocument, Pos, Range, TWIP_PER_CM, comparePos, normRange } from '../engine/document';
+import { DocxDocument, Pos, Range, TWIP_PER_CM, TextDir, comparePos, normRange } from '../engine/document';
 import { RunProps } from '../engine/model';
 import { ImageCache } from '../engine/render';
 import { ParaFmt, RunFmt, styleLabel } from '../engine/styles';
@@ -237,6 +237,9 @@ export class App {
       b.classList.toggle('disabled', !va);
       for (const h of ['left', 'center', 'right']) $(`btn-cell-${v}-${h}`).classList.toggle('active', va === v && (jc === h || (h === 'left' && jc === 'both')));
     }
+    const tdir = st && doc ? doc.cellTextDirection(st.pi) : null;
+    $('btn-textdir').classList.toggle('active', !!tdir && tdir !== 'lrTb');
+    $('btn-textdir').classList.toggle('disabled', !tdir);
     // The contextual "표 레이아웃" tab exists only while the caret is in a table (as in Word).
     const tabBtn = document.querySelector<HTMLElement>('.rb-tab[data-tab="table"]')!;
     if (tabBtn.hidden === !!va) {
@@ -526,7 +529,7 @@ export class App {
     c.register('file:save-as', { run: () => this.save(true), enabled: this.hasDoc }, 'ctrl+shift+s');
     c.register('file:print', { run: () => { ed.commit(); printDocument(ed); }, enabled: this.hasDoc }, 'ctrl+p');
     c.register('file:info', { run: () => this.infoDialog(), enabled: this.hasDoc });
-    c.register('file:about', () => { dialog('제품 정보', html(`<div style="line-height:1.7"><b>Oword</b> 0.2.3<br>DOCX 문서 편집기<br><span style="color:#5c6370;font-size:12px">Opptx(PPTX 편집기)와 같은 구조 — 문서 엔진 · 렌더러 · 명령 기반 UI · 데스크톱 셸 — 로 만든 Word 문서 편집기입니다. 이 구조는 HOP(HWP 편집기, MIT)을 참고했습니다.<br>MIT License · Copyright (c) 2026 moonlightpark<br>서드파티 라이선스: THIRD_PARTY_NOTICES.md<br>Microsoft와 관계없음. Microsoft Word는 Microsoft Corporation의 상표입니다.</span></div>`), [{ label: '확인', primary: true }]); });
+    c.register('file:about', () => { dialog('제품 정보', html(`<div style="line-height:1.7"><b>Oword</b> 0.2.4<br>DOCX 문서 편집기<br><span style="color:#5c6370;font-size:12px">Opptx(PPTX 편집기)와 같은 구조 — 문서 엔진 · 렌더러 · 명령 기반 UI · 데스크톱 셸 — 로 만든 Word 문서 편집기입니다. 이 구조는 HOP(HWP 편집기, MIT)을 참고했습니다.<br>MIT License · Copyright (c) 2026 moonlightpark<br>서드파티 라이선스: THIRD_PARTY_NOTICES.md<br>Microsoft와 관계없음. Microsoft Word는 Microsoft Corporation의 상표입니다.</span></div>`), [{ label: '확인', primary: true }]); });
     // edit
     c.register('edit:undo', {
       run: () => { ed.exitHF(); ed.commit(); const sel = d().undo() as Range | null; ed.render(); if (sel) ed.setRange(sel); this.buildStyleList(); this.queueSync(); },
@@ -830,6 +833,28 @@ export class App {
       ]),
       enabled: this.inTable,
     });
+    // Text direction (Word: 표 레이아웃 › 텍스트 방향 cycles horizontal → top-to-bottom → bottom-to-top).
+    const setDir = (dir: TextDir) => {
+      ed.commit();
+      const r = ed.getRange();
+      if (!r) return;
+      d().setCellTextDirection(d().paraRange(r), dir);
+      ed.render();
+      ed.setRange(r, false);
+      this.queueSync();
+    };
+    const DIRS: TextDir[] = ['lrTb', 'tbRl', 'btLr'];
+    for (const dir of DIRS) {
+      c.register(`table:textdir-${dir}`, {
+        run: () => setDir(dir),
+        enabled: this.inTable,
+        checked: () => { const r = ed.getRange(); return !!r && !!this.doc && d().cellTextDirection(r.start.pi) === dir; },
+      });
+    }
+    c.register('table:textdir', {
+      run: () => { const r = ed.getRange(); if (r) setDir(DIRS[(DIRS.indexOf(d().cellTextDirection(r.start.pi) ?? 'lrTb') + 1) % DIRS.length]); },
+      enabled: this.inTable,
+    });
     for (const v of ['top', 'center', 'bottom'] as const) {
       for (const h of ['left', 'center', 'right'] as const) {
         c.register(`table:align-${v}-${h}`, {
@@ -1088,6 +1113,10 @@ export class App {
         { label: '셀 맞춤: 위쪽', action: run('table:valign-top') },
         { label: '셀 맞춤: 가운데', action: run('table:valign-center') },
         { label: '셀 맞춤: 아래쪽', action: run('table:valign-bottom') },
+        { sep: true },
+        { label: '텍스트 방향: 가로', action: run('table:textdir-lrTb') },
+        { label: '텍스트 방향: 세로 (위에서 아래로)', action: run('table:textdir-tbRl') },
+        { label: '텍스트 방향: 세로 (아래에서 위로)', action: run('table:textdir-btLr') },
       );
       contextMenu(e.clientX, e.clientY, items as Parameters<typeof contextMenu>[2]);
     });

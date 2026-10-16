@@ -1,7 +1,7 @@
 // Document renderer: WordprocessingML → editable HTML (1 CSS pt = 20 twips = 12700 EMU).
 // Like HOP's renderPage* layer it only reads the model. Every rendered paragraph, run and inline
 // object is registered so the editor can map DOM positions and edits back to XML (see edit.ts).
-import { DocxDocument } from './document';
+import { DocxDocument, textDir } from './document';
 import { Item } from './model';
 import { REL } from './package';
 import { bulletChar } from './numbering';
@@ -615,6 +615,8 @@ export function renderTable(tbl: Element, ctx: RenderCtx): HTMLElement {
       if (shd && shd !== 'auto') td.style.backgroundColor = '#' + shd;
       const va = wa(child(tcPr, 'w:vAlign'), 'val');
       td.style.verticalAlign = va === 'center' ? 'middle' : va === 'bottom' ? 'bottom' : 'top';
+      const dir = textDir(wa(child(tcPr, 'w:textDirection'), 'val'));
+      if (dir !== 'lrTb') td.classList.add(dir === 'tbRl' ? 'w-vert' : 'w-vert-up');
       const cm = { ...mar };
       for (const c of children(child(tcPr, 'w:tcMar'))) {
         const k = c.localName === 'start' ? 'left' : c.localName === 'end' ? 'right' : c.localName;

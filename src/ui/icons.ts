@@ -29,6 +29,7 @@ export const ICONS: Record<string, string> = {
   vtop: S('<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M7 7h10M7 10.5h10" stroke="#2b6fd6" stroke-width="2"/>'),
   vmid: S('<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M7 10.25h10M7 13.75h10" stroke="#2b6fd6" stroke-width="2"/>'),
   vbot: S('<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M7 13.5h10M7 17h10" stroke="#2b6fd6" stroke-width="2"/>'),
+  textdir: S('<path d="M5 4v12M2.5 13.5 5 16l2.5-2.5" stroke="#2b6fd6"/><path d="M11 18 15 6l4 12M12.4 14h5.2"/>'),
   eraser: S('<path d="m4 15 8-8 6 6-6 6H8z" fill="#fff"/><path d="m8 11 6 6M12 19h8" stroke="#2b6fd6"/>'),
   replace: S('<path d="M4 7h11l-3-3M20 17H9l3 3" stroke="#2b6fd6"/><path d="M4 7v3M20 17v-3"/>'),
   select: S('<rect x="4" y="5" width="16" height="14" rx="1" stroke-dasharray="2 2"/><path d="M8 10h8M8 14h5"/>'),
