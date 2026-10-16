@@ -210,6 +210,10 @@ kbd { background: #f1f3f6; border: 1px solid #ccd; border-radius: 3px; padding: 
 .tbl-guide { position: fixed; z-index: 4000; pointer-events: none; border: 0 dashed var(--accent); }
 .tbl-guide.col { width: 0; border-left-width: 1px; }
 .tbl-guide.row { height: 0; border-top-width: 1px; }
+.tbl-guide.box { border-width: 1px; }
+.tbl-handle { position: absolute; z-index: 30; width: 8px; height: 8px; background: #fff; border: 1px solid #8a9099; cursor: nwse-resize; }
+.tbl-handle:hover { border-color: var(--accent); background: #e8f0fe; }
+@media print { .tbl-handle { display: none; } }
 .sb-btn.disabled { opacity: .35; pointer-events: none; }
 .md-item.md-hint { color: var(--color-text-secondary); font-size: 12px; pointer-events: none; }
 

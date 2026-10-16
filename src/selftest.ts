@@ -351,6 +351,52 @@ export async function runSelfTest(app: App) {
     expect(Math.abs(h1 - (h0 + 40)) <= 2, `${h0} → ${h1}`);
     eq(doc().undoLabel(), '행 높이', '실행 취소 항목');
   });
+  await check('표 바깥 오른쪽 테두리 끌기: 표 넓히기', () => {
+    const td = ed.paragraphElement(find('새 표'))!.closest('td')!;
+    const tbl = doc().cellOf(find('새 표'))!.tbl;
+    const before = doc().columnWidths(tbl);
+    const last = td.parentElement!.lastElementChild as HTMLElement;
+    const r = last.getBoundingClientRect();
+    const y = (r.top + r.bottom) / 2;
+    panel.style.pointerEvents = 'none'; // the result panel may cover the table
+    // Just outside the table: the pointer is not over a cell.
+    const outside = document.elementFromPoint(r.right + 2, y) as HTMLElement;
+    outside.dispatchEvent(new MouseEvent('mousedown', { clientX: r.right + 2, clientY: y, bubbles: true, button: 0, buttons: 1 }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: r.right + 2 + 20 * ed.zoom, clientY: y, buttons: 1 }));
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: r.right + 2 + 20 * ed.zoom, clientY: y }));
+    const after = doc().columnWidths(doc().cellOf(find('새 표'))!.tbl);
+    panel.style.pointerEvents = '';
+    eq(Math.round(after[after.length - 1] - before[before.length - 1]), 300, '마지막 칸 +20px(300twip)');
+    eq(Math.round(after.reduce((a, b) => a + b, 0) - before.reduce((a, b) => a + b, 0)), 300, '표 너비 +300twip');
+  });
+  await check('표 모서리 핸들 끌기: 표 전체 크기', () => {
+    const td = ed.paragraphElement(find('새 표'))!.closest('td')!;
+    const table = td.closest('table')!;
+    const tbl = ed.reg.dom.get(table)!;
+    const before = doc().columnWidths(tbl);
+    const rows0 = Array.from(table.rows).map((r) => r.offsetHeight);
+    td.dispatchEvent(new MouseEvent('mousemove', { clientX: td.getBoundingClientRect().left + 3, clientY: td.getBoundingClientRect().top + 3, bubbles: true }));
+    const h = ed.host.querySelector<HTMLElement>('.tbl-handle');
+    expect(h, '모서리 핸들이 나타나지 않음');
+    const hr = h!.getBoundingClientRect(), tr = table.getBoundingClientRect();
+    expect(Math.abs(hr.left - tr.right) <= 3 * ed.zoom && Math.abs(hr.top - tr.bottom) <= 3 * ed.zoom, '핸들 위치가 표 오른쪽 아래가 아님');
+    const x0 = hr.left + 3, y0 = hr.top + 3;
+    const dx = tr.width * 0.5, dy = (rows0.reduce((a, b) => a + b, 0) * ed.zoom) * 0.5;
+    h!.dispatchEvent(new MouseEvent('mousedown', { clientX: x0, clientY: y0, bubbles: true, button: 0, buttons: 1 }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: x0 - dx, clientY: y0 + dy, buttons: 1 }));
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: x0 - dx, clientY: y0 + dy }));
+    const nt = doc().cellOf(find('새 표'))!.tbl;
+    const after = doc().columnWidths(nt);
+    const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
+    expect(Math.abs(sum(after) / sum(before) - 0.5) < 0.02, `너비 비율 ${(sum(after) / sum(before)).toFixed(3)}`);
+    expect(Math.abs(after[0] / after[1] - before[0] / before[1]) < 0.02, '칸 비율이 유지되지 않음');
+    const t2 = ed.paragraphElement(find('새 표'))!.closest('table')!;
+    const rows1 = Array.from(t2.rows).map((r) => r.offsetHeight);
+    expect(Math.abs(sum(rows1) / sum(rows0) - 1.5) < 0.05, `높이 비율 ${(sum(rows1) / sum(rows0)).toFixed(3)}`);
+    eq(doc().undoLabel(), '표 크기', '실행 취소 항목');
+    run('edit:undo');
+    expect(Math.abs(sum(doc().columnWidths(doc().cellOf(find('새 표'))!.tbl)) - sum(before)) < 2, '실행 취소 후 너비');
+  });
   await check('그림 넣기(붙여넣기) → 선택·크기 조절·지우기', async () => {
     const pi = find('문서 끝.');
     caret(pi, 0);

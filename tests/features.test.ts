@@ -297,6 +297,16 @@ describe('feature document: editing keeps everything else', () => {
     doc.setRowHeight(tbl, 2, 800);
     const trH = descendants(tbl, 'w:tr')[2].getElementsByTagNameNS(W, 'trHeight')[0];
     expect([trH.getAttributeNS(W, 'val'), trH.getAttributeNS(W, 'hRule')]).toEqual(['800', 'atLeast']);
+    // Whole-table resize (corner handle): widths and row heights change in one undo step.
+    const undoDepth = doc.undoLabel();
+    doc.resizeTable(tbl, [1500, 500, 750, 750, 1000], descendants(tbl, 'w:tr').map((_, i) => (i === 0 ? 600 : null)));
+    expect(doc.columnWidths(tbl)).toEqual([1500, 500, 750, 750, 1000]);
+    expect(tbl.getElementsByTagNameNS(W, 'tblW')[0].getAttributeNS(W, 'w')).toBe('4500');
+    expect(descendants(tbl, 'w:tr')[0].getElementsByTagNameNS(W, 'trHeight')[0].getAttributeNS(W, 'val')).toBe('600');
+    expect(doc.undoLabel()).toBe('표 크기');
+    doc.undo();
+    expect(doc.undoLabel()).toBe(undoDepth);
+    expect(doc.columnWidths(doc.cellOf(find(doc, '매출'))!.tbl)).toEqual([3000, 1000, 1500, 1500, 2000]);
     // Merged table: deleting a column that a gridSpan crosses shrinks the span.
     const m = find(doc, '가로 병합');
     const mt = doc.cellOf(m)!.tbl;

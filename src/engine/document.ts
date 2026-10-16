@@ -1147,6 +1147,14 @@ export class DocxDocument {
     });
   }
 
+  /** Resize a whole table in one step: new grid widths and, optionally, minimum row heights (twips). */
+  resizeTable(tbl: Element, widths: number[], heights: (number | null)[] | null) {
+    this.transact('표 크기', [], () => {
+      this.setColumnWidths(tbl, widths);
+      if (heights) heights.forEach((h, i) => { if (h != null) this.setRowHeight(tbl, i, h); });
+    });
+  }
+
   /** Minimum height of row `row` (twips; null clears it). */
   setRowHeight(tbl: Element, row: number, twips: number | null) {
     const tr = children(tbl, 'w:tr')[row];

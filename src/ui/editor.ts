@@ -65,6 +65,7 @@ export class DocEditor {
 
   render() {
     const doc = this.hooks.doc();
+    this.hideTableHandle();
     this.root.innerHTML = '';
     this.reg = newRegistry();
     this.pending = false;
@@ -683,7 +684,15 @@ export class DocEditor {
     root.addEventListener('blur', () => { if (!this.composing) this.commit(); });
     root.addEventListener('keydown', (e) => this.onKeyDown(e));
     root.addEventListener('mousedown', (e) => this.onMouseDown(e));
-    root.addEventListener('mousemove', (e) => this.onHover(e));
+    this.host.addEventListener('mousemove', (e) => this.onHover(e));
+    // A table's outer right border can be grabbed from the page margin too (outside #doc-root).
+    this.host.addEventListener('mousedown', (e) => {
+      if (this.root.contains(e.target as Node) || e.button !== 0) return;
+      const edge = this.tableEdge(e);
+      if (edge) this.startTableDrag(e, edge);
+    });
+    this.host.addEventListener('mousemove', (e) => this.updateTableHandle(e));
+    this.host.addEventListener('mouseleave', () => this.hideTableHandle());
     // Word: double-click the top or bottom margin of a page to edit its header or footer.
     this.host.addEventListener('dblclick', (e) => {
       const doc = this.hooks.doc();
@@ -818,12 +827,15 @@ export class DocEditor {
 
   /** The table border under the pointer: a column boundary or a row bottom. */
   private tableEdge(e: MouseEvent): { kind: 'col' | 'row'; table: HTMLTableElement; index: number; pos: number } | null {
-    const td = (e.target as HTMLElement).closest?.('td') as HTMLTableCellElement | null;
+    const tol = 4;
+    const cellAt = (x: number, y: number) => (document.elementFromPoint(x, y) as HTMLElement | null)?.closest?.('td') as HTMLTableCellElement | null;
+    // Just outside the table's right or bottom border the pointer is not over a cell: look inward.
+    let td = (e.target as HTMLElement).closest?.('td') as HTMLTableCellElement | null;
+    if (!td) td = cellAt(e.clientX - tol - 1, e.clientY) ?? cellAt(e.clientX, e.clientY - tol - 1);
     if (!td || !this.root.contains(td) || td.dataset.col == null) return null;
     const table = td.closest('table') as HTMLTableElement;
     if (!this.reg.dom.get(table)) return null;
     const r = td.getBoundingClientRect();
-    const tol = 4;
     const col = Number(td.dataset.col);
     if (Math.abs(e.clientX - r.right) <= tol) return { kind: 'col', table, index: col + td.colSpan, pos: r.right };
     if (Math.abs(e.clientX - r.left) <= tol && col > 0) return { kind: 'col', table, index: col, pos: r.left };
@@ -847,7 +859,98 @@ export class DocEditor {
   private onHover(e: MouseEvent) {
     if (e.buttons) return;
     const edge = this.tableEdge(e);
-    this.root.style.cursor = edge ? (edge.kind === 'col' ? 'col-resize' : 'row-resize') : '';
+    this.host.style.cursor = this.root.style.cursor = edge ? (edge.kind === 'col' ? 'col-resize' : 'row-resize') : '';
+  }
+
+  // ---------------------------------------------------------------- whole-table resize handle
+
+  private tblHandle: HTMLElement | null = null;
+  private tblHandleFor: HTMLTableElement | null = null;
+
+  /** Word: hovering a table shows a small square at its bottom-right corner; dragging it resizes the table. */
+  private updateTableHandle(e: MouseEvent) {
+    if (e.buttons || this.hf) return;
+    const t = e.target as HTMLElement;
+    if (t === this.tblHandle) return;
+    let table = t.closest?.('table.w-tbl') as HTMLTableElement | null;
+    if (table && (!this.root.contains(table) || !this.reg.dom.get(table))) table = null;
+    if (!table && this.tblHandleFor) {
+      // Keep the handle while the pointer is on its way to it, just outside the corner.
+      const r = this.tblHandleFor.getBoundingClientRect();
+      const pad = 16 * this.zoom;
+      if (this.tblHandleFor.isConnected && e.clientX >= r.left && e.clientX <= r.right + pad && e.clientY >= r.top && e.clientY <= r.bottom + pad) return;
+    }
+    if (!table) { this.hideTableHandle(); return; }
+    this.showTableHandle(table);
+  }
+
+  private showTableHandle(table: HTMLTableElement) {
+    if (!this.tblHandle) {
+      const h = document.createElement('div');
+      h.className = 'tbl-handle';
+      h.title = '끌어서 표 크기 조절';
+      h.addEventListener('mousedown', (e) => { if (e.button === 0) this.startTableResize(e); });
+      this.tblHandle = h;
+    }
+    this.tblHandleFor = table;
+    const hr = this.host.getBoundingClientRect();
+    const r = table.getBoundingClientRect();
+    Object.assign(this.tblHandle.style, { left: (r.right - hr.left) / this.zoom + 1 + 'px', top: (r.bottom - hr.top) / this.zoom + 1 + 'px' });
+    if (this.tblHandle.parentNode !== this.host) this.host.appendChild(this.tblHandle);
+  }
+
+  hideTableHandle() {
+    this.tblHandle?.remove();
+    this.tblHandleFor = null;
+  }
+
+  private startTableResize(e: MouseEvent) {
+    const table = this.tblHandleFor;
+    const tbl = table && this.reg.dom.get(table);
+    if (!table || !tbl) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const r0 = table.getBoundingClientRect();
+    const rows = Array.from(table.rows).filter((r) => !r.classList.contains('pg-spacer') && r.closest('table') === table);
+    const rowPx = rows.map((r) => r.getBoundingClientRect().height);
+    const h0 = rowPx.reduce((a, b) => a + b, 0) || r0.height;
+    const w0 = r0.width;
+    const widths = this.measuredWidths(table, tbl);
+    const guide = document.createElement('div');
+    guide.className = 'tbl-guide box';
+    Object.assign(guide.style, { left: r0.left + 'px', top: r0.top + 'px', width: w0 + 'px', height: r0.height + 'px' });
+    document.body.appendChild(guide);
+    const minW = widths.length * 240 * ((this.zoom * 4) / 3 / 20); // ~0.4 cm per column
+    const minH = rows.length * 8 * this.zoom;
+    const x0 = e.clientX, y0 = e.clientY;
+    let w = w0, h = h0;
+    const move = (ev: MouseEvent) => {
+      w = Math.max(minW, w0 + ev.clientX - x0);
+      h = Math.max(minH, h0 + ev.clientY - y0);
+      if (ev.shiftKey) { const f = Math.max(w / w0, h / h0); w = w0 * f; h = h0 * f; } // keep proportions
+      guide.style.width = w + 'px';
+      guide.style.height = r0.height - h0 + h + 'px';
+      const cm = (px: number) => (px / this.zoom * 0.75 / 28.3465).toFixed(2);
+      this.hooks.status(`표 크기 ${cm(w)} × ${cm(h)} cm — Shift: 비율 유지`);
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      guide.remove();
+      const fx = w / w0, fy = h / h0;
+      const sameW = Math.abs(w - w0) < 1, sameH = Math.abs(h - h0) < 1;
+      if (sameW && sameH) return;
+      const r = this.getRange();
+      this.commit();
+      const ws = sameW ? widths : widths.map((x) => x * fx);
+      const hs = sameH ? null : rowPx.map((px) => (px * fy / this.zoom) * 0.75 * 20);
+      this.doc.resizeTable(tbl, ws, hs);
+      this.hideTableHandle();
+      this.render();
+      if (r) this.setRange(r, false);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
   }
 
   private startTableDrag(e: MouseEvent, edge: NonNullable<ReturnType<DocEditor['tableEdge']>>) {
