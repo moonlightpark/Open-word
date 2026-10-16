@@ -4,3 +4,4 @@ src-tauri/target
 src-tauri/gen
 tests/out
 .DS_Store
+.claude/scheduled_tasks.lock
