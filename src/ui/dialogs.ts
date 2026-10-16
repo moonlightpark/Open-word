@@ -148,7 +148,7 @@ export function toast(msg: string) {
   setTimeout(() => t.remove(), 2200);
 }
 
-export interface MenuItem { label?: string; shortcut?: string; disabled?: boolean; action?: () => void; sep?: boolean }
+export interface MenuItem { label?: string; shortcut?: string; disabled?: boolean; checked?: boolean; action?: () => void; sep?: boolean; sub?: MenuItem[] }
 
 let openMenu: HTMLElement | null = null;
 
@@ -160,19 +160,31 @@ export function closeContextMenu() {
 /** HOP-style dropdown used as a right-click menu. */
 export function contextMenu(x: number, y: number, items: MenuItem[]) {
   closeContextMenu();
+  const build = (list: MenuItem[], m: HTMLElement) => {
+    for (const it of list) {
+      if (it.sep) { const s = document.createElement('div'); s.className = 'md-sep'; m.appendChild(s); continue; }
+      const row = document.createElement('div');
+      row.className = 'md-item' + (it.disabled ? ' disabled' : '') + (it.checked ? ' checked' : '') + (it.sub ? ' has-sub' : '');
+      row.innerHTML = `<span class="md-check"></span><span class="md-label"></span><span class="${it.sub ? 'md-arrow' : 'md-shortcut'}"></span>`;
+      row.querySelector('.md-label')!.textContent = it.label ?? '';
+      row.lastElementChild!.textContent = it.sub ? '▸' : it.shortcut ?? '';
+      row.addEventListener('mousedown', (e) => e.preventDefault());
+      if (it.sub) {
+        const sub = document.createElement('div');
+        sub.className = 'menu-dropdown';
+        build(it.sub, sub);
+        row.appendChild(sub);
+        // Open to the left when there is no room on the right.
+        row.addEventListener('mouseenter', () => row.classList.toggle('sub-left', row.getBoundingClientRect().right + 200 > window.innerWidth));
+      } else {
+        row.addEventListener('click', (e) => { e.stopPropagation(); closeContextMenu(); it.action?.(); });
+      }
+      m.appendChild(row);
+    }
+  };
   const m = document.createElement('div');
   m.className = 'menu-dropdown ctx-menu';
-  for (const it of items) {
-    if (it.sep) { const s = document.createElement('div'); s.className = 'md-sep'; m.appendChild(s); continue; }
-    const row = document.createElement('div');
-    row.className = 'md-item' + (it.disabled ? ' disabled' : '');
-    row.innerHTML = `<span class="md-label"></span><span class="md-shortcut"></span>`;
-    row.querySelector('.md-label')!.textContent = it.label ?? '';
-    row.querySelector('.md-shortcut')!.textContent = it.shortcut ?? '';
-    row.addEventListener('mousedown', (e) => e.preventDefault());
-    row.addEventListener('click', () => { closeContextMenu(); it.action?.(); });
-    m.appendChild(row);
-  }
+  build(items, m);
   document.body.appendChild(m);
   m.style.left = Math.min(x, window.innerWidth - m.offsetWidth - 4) + 'px';
   m.style.top = Math.min(y, window.innerHeight - m.offsetHeight - 4) + 'px';

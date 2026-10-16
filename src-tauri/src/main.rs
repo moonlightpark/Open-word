@@ -3,7 +3,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Mutex;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
@@ -63,13 +64,24 @@ async fn save_document(app: tauri::AppHandle, path: Option<String>, suggested: S
     Ok(Some(target.to_string_lossy().into_owned()))
 }
 
-/// Files passed on the command line (e.g. "Open With" on Windows/Linux). Only the first window opens them.
+/// Documents macOS asked us to open (Finder double-click, "Open With", `open -a`) before the
+/// main window picked them up. They arrive as RunEvent::Opened, not on the command line.
+static PENDING_OPEN: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// Set once the main window has asked for its launch files; later requests open new windows.
+static LAUNCHED: AtomicBool = AtomicBool::new(false);
+
+/// Files passed on the command line (e.g. "Open With" on Windows/Linux) or by the macOS open-file
+/// event. Only the first window opens them.
 #[tauri::command]
 fn launch_paths(window: tauri::WebviewWindow) -> Vec<String> {
     if window.label() != "main" {
         return Vec::new();
     }
-    std::env::args().skip(1).filter(|a| a.to_lowercase().ends_with(".docx")).collect()
+    let mut out: Vec<String> = std::env::args().skip(1).filter(|a| a.to_lowercase().ends_with(".docx")).collect();
+    let mut pending = PENDING_OPEN.lock().unwrap();
+    out.extend(pending.drain(..));
+    LAUNCHED.store(true, Ordering::SeqCst);
+    out
 }
 
 // ---- windows (View ▸ Switch Windows / New Window)
@@ -124,6 +136,30 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![open_document, read_document, save_document, launch_paths, list_windows, focus_window, new_window])
-        .run(tauri::generate_context!())
-        .expect("error while running Oword");
+        .build(tauri::generate_context!())
+        .expect("error while building Oword")
+        .run(|_app, _event| {
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                let paths: Vec<String> = urls
+                    .iter()
+                    .filter_map(|u| u.to_file_path().ok())
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .filter(|p| p.to_lowercase().ends_with(".docx"))
+                    .collect();
+                let mut pending = PENDING_OPEN.lock().unwrap();
+                if !LAUNCHED.load(Ordering::SeqCst) {
+                    // Still starting: the main window opens these itself.
+                    pending.extend(paths);
+                } else {
+                    drop(pending);
+                    for p in paths {
+                        let app = _app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = new_window(app, Some(p)).await;
+                        });
+                    }
+                }
+            }
+        });
 }

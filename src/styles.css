@@ -176,8 +176,9 @@ kbd { background: #f1f3f6; border: 1px solid #ccd; border-radius: 3px; padding: 
 .w-tbl td { overflow-wrap: anywhere; }
 /* Cell text direction (w:textDirection): top-to-bottom, and bottom-to-top (Word's 270°). */
 .w-tbl td.w-vert { writing-mode: vertical-rl; }
-.w-tbl td.w-vert-up { writing-mode: sideways-lr; }
-@supports not (writing-mode: sideways-lr) { .w-tbl td.w-vert-up { writing-mode: vertical-rl; transform: rotate(180deg); } }
+/* Bottom-to-top as top-to-bottom turned half a turn: WebKit (the macOS app) draws sideways-lr
+   Hangul overlapping and clipped. The turn also maps "top" alignment to the left, as in Word. */
+.w-tbl td.w-vert-up { writing-mode: vertical-rl; text-orientation: sideways; transform: rotate(180deg); }
 #doc-root .w-tbl.nogrid td, .w-tbl.nogrid td { outline: 0.5px dashed #c8ccd2; outline-offset: -0.5px; }
 #doc-root.show-marks .w-p:not(:has(> .w-pgbr:last-child))::after { content: '¶'; color: #4a7fd6; font-family: var(--font-ui); font-weight: normal; font-style: normal; text-decoration: none; }
 #doc-root.show-marks .w-tab { background: linear-gradient(transparent 45%, #9cb6e0 45%, #9cb6e0 55%, transparent 55%); }
@@ -288,6 +289,10 @@ kbd { background: #f1f3f6; border: 1px solid #ccd; border-radius: 3px; padding: 
 /* menus: submenus and Mac-like look */
 .md-item.has-sub > .menu-dropdown { display: none; position: absolute; left: 100%; top: -5px; }
 .md-item.has-sub:hover > .menu-dropdown { display: block; }
+.md-item.has-sub.sub-left > .menu-dropdown { left: auto; right: 100%; }
+.md-item.has-sub.disabled > .menu-dropdown { display: none; }
+/* Right-click menu and button drop-downs (contextMenu / menuPopover): fixed at the pointer. */
+.menu-dropdown.ctx-menu { display: block; position: fixed; top: auto; left: auto; z-index: 5000; }
 .md-arrow { margin-left: 18px; color: var(--color-text-secondary); font-size: 10px; }
 .md-item.checked > .md-check::before { content: '✓'; }
 /* status bar */

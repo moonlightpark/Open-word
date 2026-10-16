@@ -309,7 +309,7 @@ export async function runSelfTest(app: App) {
     run('table:del-col');
     eq(size(), [3, 4], '원래대로');
   });
-  await check('표 셀 세로 정렬: 위/가운데/아래 (메뉴·서식 바)', () => {
+  await check('표 셀 세로 정렬: 위/가운데/아래 (메뉴·리본·홈 탭)', async () => {
     const pi = find('새 표');
     caret(pi, 0);
     expect(!document.getElementById('btn-valign-center')!.classList.contains('disabled'), '버튼 비활성');
@@ -321,8 +321,62 @@ export async function runSelfTest(app: App) {
     eq(doc().cellVAlign(find('새 표')), 'bottom', '아래');
     run('table:valign-top');
     eq(doc().cellVAlign(find('새 표')), 'top', '위');
+    // The same buttons on the 홈 tab (next to paragraph alignment).
+    document.getElementById('home-valign-center')!.click();
+    eq(doc().cellVAlign(find('새 표')), 'center', '홈 탭 가운데');
+    await frame();
+    expect(document.getElementById('home-valign-center')!.classList.contains('active'), '홈 탭 단추 상태');
+    run('table:valign-top');
     caret(find('문서 끝.'), 0);
+    await frame();
+    expect(document.getElementById('home-valign-top')!.classList.contains('disabled'), '표 밖에서 홈 탭 단추가 활성');
     expect(!app.cmd.enabled('table:valign-top'), '표 밖에서 활성화됨');
+  });
+  await check('오른쪽 클릭 메뉴: 선택한 표 텍스트의 가로 정렬 · 세로 정렬', async () => {
+    const ctxItem = (path: string[]) => {
+      let scope: Element = document.querySelector('.ctx-menu')!;
+      let row: HTMLElement | undefined;
+      for (const label of path) {
+        row = Array.from(scope.querySelectorAll<HTMLElement>(':scope > .md-item')).find((r) => r.querySelector('.md-label')!.textContent === label);
+        if (!row) throw new Error(`메뉴 항목 없음: ${path.join(' › ')}`);
+        scope = row.querySelector(':scope > .menu-dropdown') ?? scope;
+      }
+      return row!;
+    };
+    const openCtx = (el: HTMLElement) => {
+      const r = el.getBoundingClientRect();
+      el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 2, clientY: r.top + 2 }));
+      const menu = document.querySelector<HTMLElement>('.ctx-menu');
+      expect(menu, '오른쪽 클릭 메뉴가 열리지 않음');
+      expect(menu!.offsetWidth > 100 && menu!.offsetHeight > 100, `메뉴가 화면에 보이지 않음 (${menu!.offsetWidth}×${menu!.offsetHeight})`);
+    };
+    // Select the text of a table cell, then right-click it.
+    const pi = find('새 표');
+    select({ start: { pi, off: 0 }, end: { pi, off: doc().lengthOf(doc().para(pi)!) } });
+    openCtx(ed.paragraphElement(pi)!);
+    expect(ctxItem(['세로 정렬', '위쪽']).classList.contains('checked'), '현재 세로 정렬(위쪽) 표시');
+    ctxItem(['세로 정렬', '가운데']).click();
+    expect(!document.querySelector('.ctx-menu'), '메뉴가 닫히지 않음');
+    eq(doc().cellVAlign(find('새 표')), 'center', '세로 가운데');
+    eq(ed.paragraphElement(find('새 표'))!.closest('td')!.style.verticalAlign, 'middle', 'CSS');
+    expect(!ed.collapsed(), '선택이 유지되지 않음');
+    openCtx(ed.paragraphElement(find('새 표'))!);
+    ctxItem(['가로 정렬', '오른쪽 맞춤']).click();
+    eq(doc().paraFmt(doc().para(find('새 표'))!).jc, 'right', '가로 오른쪽');
+    openCtx(ed.paragraphElement(find('새 표'))!);
+    expect(ctxItem(['가로 정렬', '오른쪽 맞춤']).classList.contains('checked'), '현재 가로 정렬 표시');
+    ctxItem(['세로 정렬', '아래쪽']).click();
+    eq(doc().cellVAlign(find('새 표')), 'bottom', '세로 아래');
+    run('edit:undo'); run('edit:undo'); run('edit:undo');
+    eq(doc().cellVAlign(find('새 표')), 'top', '되돌리기');
+    // Outside a table: horizontal alignment works, vertical alignment is disabled.
+    const q = find('문서 끝.');
+    caret(q, 0);
+    openCtx(ed.paragraphElement(q)!);
+    expect(ctxItem(['세로 정렬 (표 안에서)']).classList.contains('disabled'), '표 밖에서 세로 정렬이 활성');
+    ctxItem(['가로 정렬', '가운데 맞춤']).click();
+    eq(doc().paraFmt(doc().para(q)!).jc, 'center', '표 밖 가로 가운데');
+    run('edit:undo');
   });
   await check('표 텍스트 방향: 가로 → 세로 → 아래에서 위로 (메뉴·리본)', async () => {
     const pi = find('새 표');

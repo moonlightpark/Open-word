@@ -6,7 +6,7 @@ import { ImageCache } from '../engine/render';
 import { ParaFmt, RunFmt, styleLabel } from '../engine/styles';
 import { fontStack } from '../engine/render';
 import { Commands } from './commands';
-import { closeContextMenu, closePopover, colorPopover, contextMenu, dateDialog, dialog, emojiPopover, fontDialog, highlightPopover, html, hyperlinkDialog, menuPopover, pageSetupDialog, paragraphDialog, symbolPopover, tablePopover, toast, windowMenuItems, zoomDialog } from './dialogs';
+import { MenuItem, closeContextMenu, closePopover, colorPopover, contextMenu, dateDialog, dialog, emojiPopover, fontDialog, highlightPopover, html, hyperlinkDialog, menuPopover, pageSetupDialog, paragraphDialog, symbolPopover, tablePopover, toast, windowMenuItems, zoomDialog } from './dialogs';
 import { DocEditor } from './editor';
 import { installIcons } from './icons';
 import { printDocument } from './print';
@@ -232,9 +232,10 @@ export class App {
     const cell = st && doc?.cellOf(st.pi);
     const va = st && doc ? doc.cellVAlign(st.pi) : null;
     for (const v of ['top', 'center', 'bottom']) {
-      const b = $(`btn-valign-${v}`);
-      b.classList.toggle('active', va === v);
-      b.classList.toggle('disabled', !va);
+      for (const b of [$(`btn-valign-${v}`), $(`home-valign-${v}`)]) {
+        b.classList.toggle('active', va === v);
+        b.classList.toggle('disabled', !va);
+      }
       for (const h of ['left', 'center', 'right']) $(`btn-cell-${v}-${h}`).classList.toggle('active', va === v && (jc === h || (h === 'left' && jc === 'both')));
     }
     const tdir = st && doc ? doc.cellTextDirection(st.pi) : null;
@@ -529,7 +530,7 @@ export class App {
     c.register('file:save-as', { run: () => this.save(true), enabled: this.hasDoc }, 'ctrl+shift+s');
     c.register('file:print', { run: () => { ed.commit(); printDocument(ed); }, enabled: this.hasDoc }, 'ctrl+p');
     c.register('file:info', { run: () => this.infoDialog(), enabled: this.hasDoc });
-    c.register('file:about', () => { dialog('제품 정보', html(`<div style="line-height:1.7"><b>Oword</b> 0.2.4<br>DOCX 문서 편집기<br><span style="color:#5c6370;font-size:12px">Opptx(PPTX 편집기)와 같은 구조 — 문서 엔진 · 렌더러 · 명령 기반 UI · 데스크톱 셸 — 로 만든 Word 문서 편집기입니다. 이 구조는 HOP(HWP 편집기, MIT)을 참고했습니다.<br>MIT License · Copyright (c) 2026 moonlightpark<br>서드파티 라이선스: THIRD_PARTY_NOTICES.md<br>Microsoft와 관계없음. Microsoft Word는 Microsoft Corporation의 상표입니다.</span></div>`), [{ label: '확인', primary: true }]); });
+    c.register('file:about', () => { dialog('제품 정보', html(`<div style="line-height:1.7"><b>Oword</b> 0.2.5<br>DOCX 문서 편집기<br><span style="color:#5c6370;font-size:12px">Opptx(PPTX 편집기)와 같은 구조 — 문서 엔진 · 렌더러 · 명령 기반 UI · 데스크톱 셸 — 로 만든 Word 문서 편집기입니다. 이 구조는 HOP(HWP 편집기, MIT)을 참고했습니다.<br>MIT License · Copyright (c) 2026 moonlightpark<br>서드파티 라이선스: THIRD_PARTY_NOTICES.md<br>Microsoft와 관계없음. Microsoft Word는 Microsoft Corporation의 상표입니다.</span></div>`), [{ label: '확인', primary: true }]); });
     // edit
     c.register('edit:undo', {
       run: () => { ed.exitHF(); ed.commit(); const sel = d().undo() as Range | null; ed.render(); if (sel) ed.setRange(sel); this.buildStyleList(); this.queueSync(); },
@@ -604,7 +605,18 @@ export class App {
     });
     // format: paragraphs
     for (const [id, jc, key] of [['left', 'left', 'ctrl+l'], ['center', 'center', 'ctrl+e'], ['right', 'right', 'ctrl+r'], ['justify', 'both', 'ctrl+j']]) {
-      c.register(`format:align-${id}`, { run: () => ed.hf ? ed.hfFormat({ jc }) : this.para((pis) => d().applyParaProps(pis, { jc }, '정렬')), enabled: this.hasDoc }, key);
+      c.register(`format:align-${id}`, {
+        run: () => ed.hf ? ed.hfFormat({ jc }) : this.para((pis) => d().applyParaProps(pis, { jc }, '정렬')),
+        enabled: this.hasDoc,
+        checked: () => {
+          const r = ed.getRange();
+          const p = r && this.doc ? d().para(r.start.pi) : null;
+          if (!p) return false;
+          const v = d().paraFmt(p).jc;
+          const cur = v === 'start' ? 'left' : v === 'end' ? 'right' : v === 'distribute' ? 'both' : v ?? 'left';
+          return cur === jc;
+        },
+      }, key);
     }
     c.register('format:bullet', { run: () => this.para((pis) => d().toggleList(pis, 'bullet')), enabled: this.hasDoc }, 'ctrl+shift+l');
     c.register('format:numbering', { run: () => this.para((pis) => d().toggleList(pis, 'number')), enabled: this.hasDoc });
@@ -1087,7 +1099,8 @@ export class App {
       const run = (id: string) => () => this.cmd.run(id);
       const mac = /Mac/.test(navigator.platform);
       const k = (s: string) => mac ? s.replace(/Ctrl\+/g, '⌘').replace(/Shift\+/g, '⇧').replace(/Alt\+/g, '⌥') : s;
-      const items = [
+      const item = (label: string, id: string, shortcut?: string): MenuItem => ({ label, shortcut, action: run(id), disabled: !this.cmd.enabled(id), checked: this.cmd.checked(id) });
+      const items: MenuItem[] = [
         { label: '잘라내기', shortcut: k('Ctrl+X'), disabled: this.editor.collapsed(), action: run('edit:cut') },
         { label: '복사', shortcut: k('Ctrl+C'), disabled: this.editor.collapsed(), action: run('edit:copy') },
         { label: '붙여넣기', shortcut: k('Ctrl+V'), action: run('edit:paste') },
@@ -1096,6 +1109,20 @@ export class App {
         { label: '단락…', shortcut: k('Ctrl+Alt+M'), action: run('format:paragraph') },
         { label: '글머리 기호', action: run('format:bullet') },
         { label: '번호 매기기', action: run('format:numbering') },
+        { sep: true },
+        { sep: true },
+        // Alignment of the selected text: horizontal for paragraphs, vertical for table cells.
+        { label: '가로 정렬', sub: [
+          item('왼쪽 맞춤', 'format:align-left', k('Ctrl+L')),
+          item('가운데 맞춤', 'format:align-center', k('Ctrl+E')),
+          item('오른쪽 맞춤', 'format:align-right', k('Ctrl+R')),
+          item('양쪽 맞춤', 'format:align-justify', k('Ctrl+J')),
+        ] },
+        { label: inTable ? '세로 정렬' : '세로 정렬 (표 안에서)', disabled: !inTable, sub: [
+          item('위쪽', 'table:valign-top'),
+          item('가운데', 'table:valign-center'),
+          item('아래쪽', 'table:valign-bottom'),
+        ] },
         { sep: true },
         { label: '하이퍼링크…', shortcut: k('Ctrl+K'), action: run('insert:hyperlink') },
       ];
@@ -1110,15 +1137,13 @@ export class App {
         { label: '열 삭제', action: run('table:del-col') },
         { label: '표 삭제', action: run('table:del-table') },
         { sep: true },
-        { label: '셀 맞춤: 위쪽', action: run('table:valign-top') },
-        { label: '셀 맞춤: 가운데', action: run('table:valign-center') },
-        { label: '셀 맞춤: 아래쪽', action: run('table:valign-bottom') },
-        { sep: true },
-        { label: '텍스트 방향: 가로', action: run('table:textdir-lrTb') },
-        { label: '텍스트 방향: 세로 (위에서 아래로)', action: run('table:textdir-tbRl') },
-        { label: '텍스트 방향: 세로 (아래에서 위로)', action: run('table:textdir-btLr') },
+        { label: '텍스트 방향', sub: [
+          item('가로', 'table:textdir-lrTb'),
+          item('세로 (위에서 아래로)', 'table:textdir-tbRl'),
+          item('세로 (아래에서 위로)', 'table:textdir-btLr'),
+        ] },
       );
-      contextMenu(e.clientX, e.clientY, items as Parameters<typeof contextMenu>[2]);
+      contextMenu(e.clientX, e.clientY, items);
     });
 
     // Drag & drop of .docx files / images.
