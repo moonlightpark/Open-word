@@ -554,3 +554,13 @@ describe('headers and footers', () => {
     expect((await reload(doc)).textOf((await reload(doc)).para(pi)!).startsWith('왼쪽😀👍🏽')).toBe(true);
   });
 });
+
+describe('paragraph range of a selection', () => {
+  it('leaves out a paragraph the selection only touches at its start', async () => {
+    const doc = await load();
+    expect(doc.paraRange({ start: { pi: 3, off: 0 }, end: { pi: 4, off: 0 } })).toEqual([3]);
+    expect(doc.paraRange({ start: { pi: 4, off: 0 }, end: { pi: 3, off: 2 } })).toEqual([3]);
+    expect(doc.paraRange({ start: { pi: 3, off: 2 }, end: { pi: 5, off: 1 } })).toEqual([3, 4, 5]);
+    expect(doc.paraRange({ start: { pi: 3, off: 0 }, end: { pi: 3, off: 0 } })).toEqual([3]);
+  });
+});

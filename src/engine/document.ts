@@ -608,9 +608,12 @@ export class DocxDocument {
 
   // ---------------------------------------------------------------- paragraph formatting
 
+  /** Paragraphs a selection covers. Like Word, a selection that ends at the very start of a
+   *  paragraph (drag to line end, triple-click) does not include that paragraph. */
   paraRange(r: Range): number[] {
     const { start, end } = normRange(r);
-    return Array.from({ length: end.pi - start.pi + 1 }, (_, k) => start.pi + k);
+    const last = end.pi > start.pi && end.off === 0 ? end.pi - 1 : end.pi;
+    return Array.from({ length: last - start.pi + 1 }, (_, k) => start.pi + k);
   }
 
   applyParaProps(pis: number[], props: ParaProps | ((p: Element, f: ParaFmt) => ParaProps), label = '문단 모양') {

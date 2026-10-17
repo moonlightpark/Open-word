@@ -230,6 +230,27 @@ export async function runSelfTest(app: App) {
       run(id);
       eq(doc().paraFmt(doc().para(pi)!).jc, jc, id);
     }
+    // A selection that ends at the start of the next paragraph (drag to line end, triple-click)
+    // aligns only the selected paragraph.
+    const nextJc = doc().paraFmt(doc().para(pi + 1)!).jc;
+    select({ start: { pi, off: 0 }, end: { pi: pi + 1, off: 0 } });
+    run('format:align-center');
+    eq(doc().paraFmt(doc().para(pi)!).jc, 'center', '선택 문단');
+    eq(doc().paraFmt(doc().para(pi + 1)!).jc, nextJc, '아랫줄 문단까지 정렬됨');
+    // The same with a real browser selection ending at the next paragraph's start.
+    const pe = [...ed.root.querySelectorAll('p')];
+    const a = pe.find((e) => e.textContent?.startsWith('양쪽 정렬:'));
+    expect(!!a?.nextElementSibling, '문단 요소 없음');
+    if (a && a.nextElementSibling) {
+      window.getSelection()!.setBaseAndExtent(a, 0, a.nextElementSibling, 0);
+      const dr = ed.getRange()!;
+      eq([dr.start.pi, dr.end.pi, dr.end.off].join(), [pi, pi + 1, 0].join(), 'DOM 선택 범위');
+      run('format:align-right');
+      eq(doc().paraFmt(doc().para(pi)!).jc, 'right', 'DOM 선택 문단');
+      eq(doc().paraFmt(doc().para(pi + 1)!).jc, nextJc, 'DOM 선택: 아랫줄 문단까지 정렬됨');
+    }
+    caret(pi, 3);
+    run('format:align-left');
     run('format:line-1.5');
     eq(doc().paraFmt(doc().para(pi)!).line, 360, '줄 간격');
     run('format:indent');
