@@ -236,6 +236,13 @@ export class DocxDocument {
     return result;
   }
 
+  /** Forget undo history and mark the document unchanged (setup of a new document). */
+  resetHistory() {
+    this.undoStack = [];
+    this.redoStack = [];
+    this.dirty = false;
+  }
+
   canUndo() { return this.undoStack.length > 0; }
   canRedo() { return this.redoStack.length > 0; }
   undoLabel() { return this.undoStack.at(-1)?.label; }

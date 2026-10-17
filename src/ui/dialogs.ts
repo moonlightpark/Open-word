@@ -1,5 +1,6 @@
 // Popovers (color palette, highlight, table grid) and modal dialogs.
 import { PageSetup, TWIP_PER_CM } from '../engine/document';
+import { PAPERS, Prefs } from './prefs';
 import { ParaFmt } from '../engine/styles';
 
 let openPop: HTMLElement | null = null;
@@ -277,7 +278,6 @@ export function paragraphDialog(f: ParaFmt, apply: (r: ParaDialogResult) => void
   ]);
 }
 
-const PAPERS: [string, number, number][] = [['A4', 210, 297], ['A3', 297, 420], ['A5', 148, 210], ['B5 (JIS)', 182, 257], ['B4 (JIS)', 257, 364], ['Letter', 215.9, 279.4], ['Legal', 215.9, 355.6]];
 
 /** 쪽 설정: paper size, orientation and margins. */
 export function pageSetupDialog(ps: PageSetup, apply: (ps: PageSetup) => void) {
@@ -325,6 +325,23 @@ export function pageSetupDialog(ps: PageSetup, apply: (ps: PageSetup) => void) {
         });
       },
     },
+  ]);
+}
+
+/** 옵션: default paper for new documents and the layout documents open in. */
+export function optionsDialog(p: Prefs, apply: (p: Prefs) => void) {
+  const body = html(`
+    <div class="form cols2">
+      <label>새 문서 용지</label><select name="paper">${PAPERS.map(([n, a, b]) => `<option value="${n}">${n} (${a} × ${b} mm)</option>`).join('')}</select>
+      <label>문서를 열 때</label><select name="view"><option value="print">인쇄 모양 (용지 크기의 페이지)</option><option value="web">웹 모양 (창 너비의 웹 페이지)</option></select>
+    </div>
+    <p class="dlg-note">보기는 언제든 보기 탭 또는 상태 표시줄에서 바꿀 수 있습니다. 문서에 저장된 용지 크기는 바꾸지 않습니다(레이아웃 › 크기).</p>`);
+  const paper = body.querySelector('[name="paper"]') as HTMLSelectElement, view = body.querySelector('[name="view"]') as HTMLSelectElement;
+  paper.value = p.paper;
+  view.value = p.view;
+  dialog('옵션', body, [
+    { label: '취소' },
+    { label: '확인', primary: true, action: () => apply({ paper: paper.value, view: view.value === 'web' ? 'web' : 'print' }) },
   ]);
 }
 

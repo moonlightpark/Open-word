@@ -243,7 +243,8 @@ export class DocEditor {
     this.root.classList.toggle('show-marks', this.showMarks);
     Object.assign(this.root.style, { left: pad + 'pt', top: pad + 'pt', width: wPt - 2 * pad + 'pt' });
     this.host.style.width = wPt + 'pt';
-    const hPt = this.root.offsetHeight * 0.75 + 2 * pad;
+    // The web page fills at least the visible area, like a browser window, however short the text.
+    const hPt = Math.max(this.root.offsetHeight * 0.75 + 2 * pad, ((sc?.clientHeight ?? 0) - 4) / this.zoom * 0.75);
     this.host.style.height = hPt + 'pt';
     this.layout = Array.from(this.root.children).filter((c): c is HTMLElement => c instanceof HTMLElement && !c.hidden)
       .map((el) => ({ el, y: el.offsetTop, h: el.offsetHeight, mt: 0, page: 0, endPage: 0 }));

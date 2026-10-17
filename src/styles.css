@@ -106,6 +106,8 @@ button { font: inherit; color: inherit; }
 .dlg button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 .dlg .form { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 8px 10px; align-items: center; }
 .dlg .form label { color: var(--color-text-secondary); font-size: 12px; }
+.dlg .form.cols2 { grid-template-columns: auto 1fr; }
+.dlg .dlg-note { margin: 12px 0 0; max-width: 380px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; }
 .dlg input[type=text], .dlg input[type=number] { height: 28px; border: 1px solid var(--ui-border-light); border-radius: 4px; padding: 0 6px; font: inherit; width: 100%; }
 .dlg select { height: 28px; border: 1px solid var(--ui-border-light); border-radius: 4px; padding: 0 4px; font: inherit; width: 100%; background: #fff; }
 .dlg input[type=color] { width: 44px; height: 28px; padding: 0 2px; border: 1px solid var(--ui-border-light); border-radius: 4px; }

@@ -6,8 +6,9 @@ import { ImageCache } from '../engine/render';
 import { ParaFmt, RunFmt, styleLabel } from '../engine/styles';
 import { fontStack } from '../engine/render';
 import { Commands } from './commands';
-import { MenuItem, closeContextMenu, closePopover, colorPopover, contextMenu, dateDialog, dialog, emojiPopover, fontDialog, highlightPopover, html, hyperlinkDialog, menuPopover, pageSetupDialog, paragraphDialog, symbolPopover, tablePopover, toast, windowMenuItems, zoomDialog } from './dialogs';
+import { MenuItem, closeContextMenu, optionsDialog, closePopover, colorPopover, contextMenu, dateDialog, dialog, emojiPopover, fontDialog, highlightPopover, html, hyperlinkDialog, menuPopover, pageSetupDialog, paragraphDialog, symbolPopover, tablePopover, toast, windowMenuItems, zoomDialog } from './dialogs';
 import { DocEditor } from './editor';
+import { LayoutMode, Prefs, loadPrefs, paperTwips, savePrefs } from './prefs';
 import { installIcons } from './icons';
 import { printDocument } from './print';
 import { drawRulers } from './ruler';
@@ -30,6 +31,7 @@ export class App {
   doc: DocxDocument | null = null;
   images!: ImageCache;
   fileName = '새 문서.docx';
+  prefs: Prefs = loadPrefs();
   fileHandle: FileSystemFileHandle | undefined;
   filePath: string | undefined; // desktop shell
   fit: 'width' | 'page' | 'text' | null = null;
@@ -76,7 +78,11 @@ export class App {
     doc.onChange = () => this.onDocChange();
     this.editor.render();
     this.buildStyleList();
+    // Every document opens in the layout chosen in 옵션 (인쇄 모양 by default).
+    if (this.editor.mode !== this.prefs.view) this.editor.setMode(this.prefs.view);
     this.zoomDefault();
+    this.syncRulers();
+    this.syncRibbon();
     this.updateTitle();
     this.updateOutline();
     this.updateInfo();
@@ -89,6 +95,17 @@ export class App {
     const res = await fetch('./blank.docx');
     const bytes = new Uint8Array(await res.arrayBuffer());
     await this.open(bytes, '새 문서.docx');
+    // blank.docx is A4; another paper chosen in 옵션 replaces it without making the document dirty.
+    const [w, h] = paperTwips(this.prefs.paper);
+    const ps = this.doc!.pageSetup();
+    if (ps.w !== w || ps.h !== h) {
+      this.doc!.setPageSetup({ ...ps, w, h, orient: 'portrait' });
+      this.doc!.resetHistory();
+      this.editor.render();
+      this.zoomDefault();
+      this.syncRulers();
+      this.updateTitle();
+    }
     this.message('새 문서');
   }
 
@@ -530,7 +547,7 @@ export class App {
     c.register('file:save-as', { run: () => this.save(true), enabled: this.hasDoc }, 'ctrl+shift+s');
     c.register('file:print', { run: () => { ed.commit(); printDocument(ed); }, enabled: this.hasDoc }, 'ctrl+p');
     c.register('file:info', { run: () => this.infoDialog(), enabled: this.hasDoc });
-    c.register('file:about', () => { dialog('제품 정보', html(`<div style="line-height:1.7"><b>Oword</b> 0.2.6<br>DOCX 문서 편집기<br><span style="color:#5c6370;font-size:12px">Opptx(PPTX 편집기)와 같은 구조 — 문서 엔진 · 렌더러 · 명령 기반 UI · 데스크톱 셸 — 로 만든 Word 문서 편집기입니다. 이 구조는 HOP(HWP 편집기, MIT)을 참고했습니다.<br>MIT License · Copyright (c) 2026 moonlightpark<br>서드파티 라이선스: THIRD_PARTY_NOTICES.md<br>Microsoft와 관계없음. Microsoft Word는 Microsoft Corporation의 상표입니다.</span></div>`), [{ label: '확인', primary: true }]); });
+    c.register('file:about', () => { dialog('제품 정보', html(`<div style="line-height:1.7"><b>Oword</b> 0.2.7<br>DOCX 문서 편집기<br><span style="color:#5c6370;font-size:12px">Opptx(PPTX 편집기)와 같은 구조 — 문서 엔진 · 렌더러 · 명령 기반 UI · 데스크톱 셸 — 로 만든 Word 문서 편집기입니다. 이 구조는 HOP(HWP 편집기, MIT)을 참고했습니다.<br>MIT License · Copyright (c) 2026 moonlightpark<br>서드파티 라이선스: THIRD_PARTY_NOTICES.md<br>Microsoft와 관계없음. Microsoft Word는 Microsoft Corporation의 상표입니다.</span></div>`), [{ label: '확인', primary: true }]); });
     // edit
     c.register('edit:undo', {
       run: () => { ed.exitHF(); ed.commit(); const sel = d().undo() as Range | null; ed.render(); if (sel) ed.setRange(sel); this.buildStyleList(); this.queueSync(); },
@@ -674,7 +691,15 @@ export class App {
       });
     }
     // Word-style additions: views, insert, font dialog, case, review, layout, table alignment
-    const setMode = (m: 'print' | 'web') => {
+    c.register('tool:options', {
+      run: () => optionsDialog(this.prefs, (p) => {
+        this.prefs = p;
+        savePrefs(p);
+        if (this.doc && ed.mode !== p.view) setMode(p.view);
+        this.message(`옵션 저장: 새 문서 ${p.paper}, ${p.view === 'web' ? '웹 모양' : '인쇄 모양'}으로 열기`);
+      }),
+    }, 'ctrl+,');
+    const setMode = (m: LayoutMode) => {
       ed.setMode(m);
       if (m === 'print' && this.fit) this.setZoom(this.fitZoom(this.fit), this.fit);
       this.syncRulers();

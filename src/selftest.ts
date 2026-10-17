@@ -4,6 +4,7 @@
 // console and tests/out/selftest.json.
 import { DocxDocument, Range } from './engine/document';
 import { App } from './ui/app';
+import { DEFAULT_PREFS, loadPrefs, savePrefs } from './ui/prefs';
 
 type Check = { name: string; ok: boolean; detail?: string; ms: number };
 
@@ -931,6 +932,32 @@ export async function runSelfTest(app: App) {
     const re = await DocxDocument.load(await doc().saveBytes());
     eq(re.paragraphs().map((p) => re.textOf(p)), ['새 문서 첫 줄', '목록'], '텍스트');
     expect(re.labels().get(re.para(1)!), '목록 번호');
+  });
+
+  await check('옵션: 새 문서 용지 · 열 때 보기 (기본 A4 · 인쇄 모양)', async () => {
+    const saved = app.prefs;
+    try {
+      eq([saved.paper, saved.view].join(), [loadPrefs().paper, loadPrefs().view].join(), '저장된 옵션');
+      app.prefs = { ...DEFAULT_PREFS };
+      await app.newDocument();
+      eq([doc().pageSetup().w, doc().pageSetup().h, ed.mode], [11906, 16838, 'print'], '기본: A4 · 인쇄 모양');
+      run('tool:options');
+      const dlg = document.querySelector<HTMLElement>('.dlg')!;
+      expect(dlg && dlg.offsetWidth > 100, '옵션 대화상자가 보이지 않음');
+      dlg.querySelector<HTMLSelectElement>('[name="paper"]')!.value = 'Letter';
+      dlg.querySelector<HTMLSelectElement>('[name="view"]')!.value = 'web';
+      Array.from(dlg.querySelectorAll('button')).find((b) => b.textContent === '확인')!.click();
+      eq([app.prefs.paper, app.prefs.view, ed.mode], ['Letter', 'web', 'web'], '확인 → 바로 웹 모양');
+      eq(loadPrefs().view, 'web', '옵션 저장');
+      await app.newDocument();
+      eq([doc().pageSetup().w, doc().pageSetup().h, ed.mode, doc().dirty, doc().canUndo()], [12240, 15840, 'web', false, false], '새 문서: Letter · 웹 모양 · 변경 없음');
+      await open('./blank.docx');
+      eq([doc().pageSetup().w, ed.mode], [11906, 'web'], '열기: 문서 용지 유지 · 웹 모양으로');
+    } finally {
+      app.prefs = saved;
+      savePrefs(saved);
+      ed.setMode(saved.view);
+    }
   });
 
   const failed = results.filter((r) => !r.ok);
