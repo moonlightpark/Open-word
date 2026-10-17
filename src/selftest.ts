@@ -682,11 +682,13 @@ export async function runSelfTest(app: App) {
     Array.from(document.querySelectorAll<HTMLElement>('.ctx-menu .md-item')).find((m) => m.textContent!.startsWith('좁게'))!.click();
     eq([doc().pageSetup().left, doc().pageSetup().top], [720, 720], '좁게');
     run('layout:orientation');
-    Array.from(document.querySelectorAll<HTMLElement>('.ctx-menu .md-item')).find((m) => m.textContent === '가로')!.click();
-    eq(doc().pageSetup().orient, 'landscape', '가로');
+    // The document has two sections: 가로 (현재 구역) turns only the caret's section.
+    Array.from(document.querySelectorAll<HTMLElement>('.ctx-menu .md-item')).find((m) => m.textContent === '가로 (현재 구역)')!.click();
+    const cur = () => doc().sectionSetups()[app.caretSection()];
+    eq([cur().orient, doc().pageSetup().orient], ['landscape', 'portrait'], '가로 (현재 구역)');
     run('layout:size');
     Array.from(document.querySelectorAll<HTMLElement>('.ctx-menu .md-item')).find((m) => m.textContent!.startsWith('Letter'))!.click();
-    eq([doc().pageSetup().w, doc().pageSetup().h], [15840, 12240], 'Letter 가로');
+    eq([cur().w, cur().h, doc().pageSetup().w], [15840, 12240, 12240], 'Letter, 구역마다 방향 유지');
     run('edit:undo'); run('edit:undo'); run('edit:undo');
     eq(doc().pageSetup().w, 11906, '되돌리기');
     const pi = find('왼쪽 정렬 문단');
@@ -932,6 +934,87 @@ export async function runSelfTest(app: App) {
     const re = await DocxDocument.load(await doc().saveBytes());
     eq(re.paragraphs().map((p) => re.textOf(p)), ['새 문서 첫 줄', '목록'], '텍스트');
     expect(re.labels().get(re.para(1)!), '목록 번호');
+  });
+
+  await check('페이지별 용지 방향: 이 페이지만 가로 → 구역 나누기, 쪽마다 크기', async () => {
+    await open('./blank.docx');
+    caret(0, 0);
+    type('첫째 쪽');
+    run('insert:page-break');
+    type('둘째 쪽 — 가로로 바꿀 쪽');
+    run('insert:page-break');
+    type('셋째 쪽');
+    ed.commit();
+    await frame();
+    eq(ed.pages, 3, '쪽 수');
+    caret(1, 3);
+    eq(ed.caretPage(), 2, '둘째 쪽에 커서');
+    // The orientation button opens the menu with 이 페이지만 ▸ 가로.
+    document.getElementById('tb-orient')!.click();
+    const items = Array.from(document.querySelectorAll<HTMLElement>('.ctx-menu .md-item'));
+    const sub = items.find((m) => m.querySelector(':scope > .md-label')?.textContent === '이 페이지만');
+    expect(!!sub, '이 페이지만 메뉴 없음');
+    Array.from(sub!.querySelectorAll<HTMLElement>('.md-item')).find((m) => m.textContent!.startsWith('가로'))!.click();
+    await frame();
+    eq(doc().sectionSetups().map((s) => s.orient).join(), 'portrait,landscape,portrait', '구역 방향');
+    eq(ed.pages, 3, '빈 쪽이 생기지 않음');
+    eq(ed.pageGeo.map((g) => Math.round(g.W)).join(), '595,842,595', '쪽 너비');
+    const frames = Array.from(ed.frames.children) as HTMLElement[];
+    const fr = frames.map((f) => f.getBoundingClientRect());
+    expect(fr[1].width > fr[1].height && fr[0].width < fr[0].height, '가로 쪽 모양');
+    expect(Math.abs((fr[0].left + fr[0].right) / 2 - (fr[1].left + fr[1].right) / 2) < 2, '쪽 가운데 맞춤');
+    // Each page's text sits inside its own page, in its margins.
+    for (const [k, t] of ['첫째 쪽', '둘째 쪽', '셋째 쪽'].entries()) {
+      const p = Array.from(ed.root.querySelectorAll<HTMLElement>('p.w-p')).find((e) => e.textContent!.startsWith(t))!;
+      const r = p.getBoundingClientRect();
+      const g = ed.pageGeo[k];
+      const px = (4 / 3) * ed.zoom;
+      expect(Math.abs(r.left - (fr[k].left + g.left * px)) < 2, t + ' 왼쪽 여백');
+      expect(Math.abs(r.width - g.CW * px) < 2, t + ' 본문 너비');
+      expect(Math.abs(r.top - (fr[k].top + g.top * px)) < 3, t + ' 위쪽 여백');
+    }
+    eq(ed.caretPage(), 2, '커서 쪽 유지');
+    eq(app.cmd.checked('layout:orient-landscape'), true, '현재 구역 가로 표시');
+    // Undo is one step and puts everything back.
+    run('edit:undo');
+    await frame();
+    eq([doc().sections().length, ed.pages, ed.pageGeo.map((g) => Math.round(g.W)).join()], [1, 3, '595,595,595'], '되돌리기');
+    run('edit:redo');
+    await frame();
+    eq(doc().sections().length, 3, '다시 실행');
+    // 쪽 설정 dialog: 적용 대상 defaults to the current section once there are several.
+    caret(2, 0);
+    run('page:setup');
+    const dlg = document.querySelector<HTMLElement>('.dlg')!;
+    const scope = dlg.querySelector<HTMLSelectElement>('[name="scope"]')!;
+    eq([scope.value, Array.from(scope.options).map((o) => o.value).join()], ['section', 'all,section,page,forward'], '적용 대상');
+    dlg.querySelector<HTMLSelectElement>('[name="orient"]')!.value = 'landscape';
+    dlg.querySelector<HTMLSelectElement>('[name="orient"]')!.dispatchEvent(new Event('change'));
+    Array.from(dlg.querySelectorAll('button')).find((b) => b.textContent === '적용')!.click();
+    eq(doc().sectionSetups().map((s) => s.orient).join(), 'portrait,landscape,landscape', '셋째 구역만 가로');
+    run('edit:undo');
+    eq(doc().sectionSetups().map((s) => s.orient).join(), 'portrait,landscape,portrait', '대화상자 되돌리기');
+    // Saved and reopened, the sections survive; print gives each sheet its own size.
+    const re = await DocxDocument.load(await doc().saveBytes());
+    eq(re.sectionSetups().map((s) => s.orient).join(), 'portrait,landscape,portrait', '저장 후');
+    // Printing: one sheet per page, the landscape page on its own landscape @page.
+    const real = window.print;
+    window.print = () => {};
+    try { run('file:print'); } finally { setTimeout(() => { window.print = real; }, 200); }
+    const proot = document.getElementById('print-root')!;
+    const sheets = Array.from(proot.querySelectorAll<HTMLElement>('.print-page'));
+    eq(sheets.map((x) => x.style.width).join(), '595.3pt,841.9pt,595.3pt', '인쇄 장 너비');
+    expect(proot.querySelector('style')!.textContent!.includes('841.9pt 595.3pt'), '가로 @page');
+    eq(sheets.map((x) => x.style.getPropertyValue('page')).join(), 'sz0,sz1,sz0', '장마다 @page');
+    expect(sheets[1].textContent!.includes('둘째 쪽') && !sheets[1].textContent!.includes('셋째 쪽'), '둘째 장 내용');
+    const body = sheets[1].querySelector<HTMLElement>('.print-body')!;
+    // The page's text starts at its own left margin: body offset + the block's section shift.
+    const ml = body.querySelector<HTMLElement>('p')!.style.marginLeft;
+    const m = /([-\d.]+)(pt|px)\)$/.exec(ml);
+    const dx = m ? Number(m[1]) * (m[2] === 'px' ? 0.75 : 1) : 0;
+    eq(Math.round(parseFloat(body.style.left) + dx), 72, '가로 장 왼쪽 여백 ' + ml);
+    proot.innerHTML = '';
+    ed.paginate();
   });
 
   await check('옵션: 새 문서 용지 · 열 때 보기 (기본 A4 · 인쇄 모양)', async () => {

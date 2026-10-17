@@ -280,7 +280,7 @@ export function paragraphDialog(f: ParaFmt, apply: (r: ParaDialogResult) => void
 
 
 /** 쪽 설정: paper size, orientation and margins. */
-export function pageSetupDialog(ps: PageSetup, apply: (ps: PageSetup) => void) {
+export function pageSetupDialog(ps: PageSetup, apply: (ps: PageSetup, scope: string) => void, scopes: [string, string][] = [['all', '전체 문서']], scope0 = 'all') {
   const mm = (tw: number) => tw / TWIP_PER_CM * 10;
   const [w, h] = [mm(Math.min(ps.w, ps.h)), mm(Math.max(ps.w, ps.h))];
   const match = PAPERS.find(([, a, b]) => Math.abs(a - w) < 1.5 && Math.abs(b - h) < 1.5);
@@ -296,11 +296,13 @@ export function pageSetupDialog(ps: PageSetup, apply: (ps: PageSetup) => void) {
       <label>오른쪽 (cm)</label><input type="number" step="0.1" name="right" value="${cm(ps.right)}">
       <label>머리글 (cm)</label><input type="number" step="0.1" name="header" value="${cm(ps.header)}">
       <label>바닥글 (cm)</label><input type="number" step="0.1" name="footer" value="${cm(ps.footer)}">
+      <label>적용 대상</label><select name="scope">${scopes.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
     </div>`);
   const q = <T extends HTMLElement = HTMLInputElement>(n: string) => body.querySelector(`[name="${n}"]`) as T;
   const paper = q<HTMLSelectElement>('paper'), orient = q<HTMLSelectElement>('orient');
   paper.value = match ? match[0] : 'custom';
   orient.value = ps.orient;
+  q<HTMLSelectElement>('scope').value = scope0;
   const sync = () => {
     const p = PAPERS.find(([n]) => n === paper.value);
     if (!p) return;
@@ -322,7 +324,7 @@ export function pageSetupDialog(ps: PageSetup, apply: (ps: PageSetup) => void) {
           w: tw(q('w').value), h: tw(q('h').value), orient: orient.value as PageSetup['orient'],
           top: fromCm(q('top').value), bottom: fromCm(q('bottom').value), left: fromCm(q('left').value), right: fromCm(q('right').value),
           header: fromCm(q('header').value), footer: fromCm(q('footer').value),
-        });
+        }, q<HTMLSelectElement>('scope').value);
       },
     },
   ]);

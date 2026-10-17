@@ -7,6 +7,7 @@ export interface RulerInfo {
   left: number; right: number; top: number; bottom: number; // margins, pt
   indLeft: number; indRight: number; first: number; // current paragraph, pt (first: first-line offset)
   pageTop: number; // CSS px offset of the caret's page top inside the host (unscaled)
+  pageLeft?: number; // CSS px offset of the caret's page left inside the host (unscaled)
 }
 
 export function drawRulers(h: HTMLCanvasElement, v: HTMLCanvasElement, host: HTMLElement, zoom: number, info: RulerInfo | null) {
@@ -22,7 +23,7 @@ export function drawRulers(h: HTMLCanvasElement, v: HTMLCanvasElement, host: HTM
     g.clearRect(0, 0, r.width, r.height);
     if (!info) return;
     const k = (4 / 3) * zoom; // screen px per pt
-    const origin = horizontal ? hr.left - r.left : hr.top - r.top + info.pageTop * zoom;
+    const origin = horizontal ? hr.left - r.left + (info.pageLeft ?? 0) * zoom : hr.top - r.top + info.pageTop * zoom;
     const len = (horizontal ? info.pageW : info.pageH) * k;
     const m0 = (horizontal ? info.left : info.top) * k;
     const m1 = (horizontal ? info.right : info.bottom) * k;

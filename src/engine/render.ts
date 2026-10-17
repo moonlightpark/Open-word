@@ -221,7 +221,11 @@ export function renderParagraph(p: Element, ctx: RenderCtx, opts: { noBefore?: b
   }
   if (f.pageBreakBefore) el.dataset.breakBefore = '1';
   if (f.keepNext) el.dataset.keepNext = '1';
-  if (path(p, 'w:pPr', 'w:sectPr') && wa(path(p, 'w:pPr', 'w:sectPr', 'w:type'), 'val') !== 'continuous') el.dataset.breakAfter = '1';
+  if (path(p, 'w:pPr', 'w:sectPr')) {
+    // Section break: the next section starts on a new page unless it is continuous.
+    el.dataset.sect = '1';
+    if (wa(path(p, 'w:pPr', 'w:sectPr', 'w:type'), 'val') !== 'continuous') el.dataset.breakAfter = '1';
+  }
   if (f.outlineLvl != null && f.outlineLvl < 9) el.dataset.outline = String(f.outlineLvl);
   s.tabSize = pt(doc.defaultTabStop);
 

@@ -9,24 +9,30 @@ export function printDocument(editor: DocEditor) {
   editor.mode = 'print'; // printing always uses pages, also from web layout
   editor.gapPt = 0;
   editor.paginate();
-  const g = editor.geometry();
-  const PX = 4 / 3;
-  const stride = g.H * PX;
+  const geos = editor.pageGeo;
+  const g0 = geos[0];
+  // The root sits at page 1's text column; other sections' blocks carry their own offsets.
+  const rootX = g0.x + g0.left;
   root.innerHTML = '';
+  // Pages of another size (a landscape section) print on their own named @page.
+  const sizes = [...new Set(geos.map((g) => `${g.W}pt ${g.H}pt`))];
   const style = document.createElement('style');
-  style.textContent = `@page { size: ${g.W}pt ${g.H}pt; margin: 0; }`;
+  style.textContent = `@page { size: ${g0.W}pt ${g0.H}pt; margin: 0; }\n` + sizes.map((sz, k) => `@page sz${k} { size: ${sz}; margin: 0; }`).join('\n');
   root.appendChild(style);
   const frames = Array.from(editor.frames.children) as HTMLElement[];
   for (let i = 0; i < editor.pages; i++) {
+    const g = geos[i];
     const sheet = document.createElement('div');
     sheet.className = 'print-page';
     sheet.style.width = g.W + 'pt';
     sheet.style.height = g.H + 'pt';
+    if (sizes.length > 1) sheet.style.setProperty('page', 'sz' + sizes.indexOf(`${g.W}pt ${g.H}pt`));
     const frame = frames[i]?.cloneNode(true) as HTMLElement | undefined;
-    if (frame) { frame.style.top = '0'; sheet.appendChild(frame); }
+    if (frame) { frame.style.top = '0'; frame.style.left = '0'; sheet.appendChild(frame); }
     const body = document.createElement('div');
     body.className = 'print-body';
-    Object.assign(body.style, { left: g.left + 'pt', top: g.top + 'pt', width: g.CW + 'pt' });
+    Object.assign(body.style, { left: rootX - g.x + 'pt', top: g.top + 'pt', width: g0.CW + 'pt' });
+    const top = editor.contentTop(i);
     for (const b of editor.layout) {
       if (b.page > i || b.endPage < i) continue;
       const c = b.el.cloneNode(true) as HTMLElement;
@@ -35,7 +41,7 @@ export function printDocument(editor: DocEditor) {
       c.style.right = '0';
       c.style.margin = '0';
       if (c.tagName === 'P') { c.style.marginLeft = b.el.style.marginLeft; c.style.marginRight = b.el.style.marginRight; }
-      c.style.top = b.y - i * stride + 'px';
+      c.style.top = b.y - top + 'px';
       if (c.tagName === 'TABLE') c.style.left = b.el.offsetLeft + 'px';
       body.appendChild(c);
     }

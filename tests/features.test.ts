@@ -564,3 +564,47 @@ describe('paragraph range of a selection', () => {
     expect(doc.paraRange({ start: { pi: 3, off: 0 }, end: { pi: 3, off: 0 } })).toEqual([3]);
   });
 });
+
+describe('sections: orientation per page', () => {
+  it('turns only the chosen blocks to landscape with section breaks around them', async () => {
+    const doc = await load();
+    const n = doc.blocks().length;
+    const base = doc.sections().length; // the fixture already has a section break further down
+    const first = doc.blockOf(find(doc, '매출')); // a table: the break after it needs its own paragraph
+    doc.setOrientation('landscape', 3, first);
+    const secs = doc.sectionSetups();
+    expect(secs.length).toBe(base + 2);
+    expect(secs.slice(0, 3).map((s) => s.orient)).toEqual(['portrait', 'landscape', 'portrait']);
+    expect(secs[1].w).toBe(16838);
+    expect(secs[1].h).toBe(11906);
+    expect(doc.blocks().length).toBe(n + 1); // empty break paragraph after the table
+    expect(doc.sectionOfBlock(2)).toBe(0);
+    expect(doc.sectionOfBlock(3)).toBe(1);
+    expect(doc.sectionOfBlock(first + 1)).toBe(1); // the break paragraph closes the landscape section
+    expect(doc.sectionOfBlock(first + 2)).toBe(2);
+    // w:sectPr is the last pPr child (before pPrChange) and Word-valid when written out.
+    const holder = doc.blocks()[2];
+    const pPr = Array.from(holder.children).find((c) => c.localName === 'pPr')!;
+    expect(pPr.lastElementChild?.localName).toBe('sectPr');
+    const re = await reload(doc);
+    expect(re.sectionSetups().slice(0, 3).map((s) => s.orient)).toEqual(['portrait', 'landscape', 'portrait']);
+    doc.undo();
+    expect(doc.sections().length).toBe(base);
+    expect(doc.blocks().length).toBe(n);
+  });
+
+  it('applies paper size per section keeping each orientation; breaks at the caret', async () => {
+    const doc = await load();
+    const base = doc.sections().length;
+    const pos = { pi: find(doc, '양쪽 정렬:'), off: 2 };
+    const next = doc.insertSectionBreakAt(pos);
+    expect(next).toEqual({ pi: pos.pi + 1, off: 0 });
+    expect(doc.sections().length).toBe(base + 1);
+    expect(doc.textOf(doc.para(pos.pi)!)).toBe('양쪽');
+    doc.setSectionOrientation('landscape', [1]);
+    doc.setPageSetup((ps) => ({ ...ps, left: 720 }));
+    expect(doc.sectionSetups().slice(0, 2).map((s) => [s.orient, s.left])).toEqual([['portrait', 720], ['landscape', 720]]);
+    expect(doc.sectionSetups().every((s) => s.left === 720)).toBe(true);
+    expect(doc.insertSectionBreak(doc.blockOf(pos.pi + 1))).toBe(false); // already a section start
+  });
+});

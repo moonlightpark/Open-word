@@ -1,6 +1,6 @@
 // Application controller: document lifecycle, command registration, UI state sync.
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { DocxDocument, Pos, Range, TWIP_PER_CM, TextDir, comparePos, normRange } from '../engine/document';
+import { DocxDocument, PageSetup, Pos, Range, TWIP_PER_CM, TextDir, comparePos, normRange, turn } from '../engine/document';
 import { RunProps } from '../engine/model';
 import { ImageCache } from '../engine/render';
 import { ParaFmt, RunFmt, styleLabel } from '../engine/styles';
@@ -26,6 +26,9 @@ const PX = 4 / 3;
 const HANGUL = /[ᄀ-ᇿ㄰-㆏가-힯　-鿿＀-￯]/;
 
 interface Clip { text: string; paras: string[] }
+
+/** 적용 대상 of a page setup change. */
+export type PageScope = 'all' | 'section' | 'page' | 'selection' | 'forward';
 
 export class App {
   doc: DocxDocument | null = null;
@@ -327,15 +330,15 @@ export class App {
   syncRulers() {
     $('editor-area').classList.toggle('no-ruler', !this.showRuler || this.editor.mode === 'web');
     if (!this.doc || !this.showRuler || this.editor.mode === 'web') return;
-    const g = this.editor.geometry();
+    const page = this.editor.caretPage() - 1;
+    const g = this.editor.geometry(page + 1);
     const st = this.caretFmt();
     const p = st ? this.doc.para(st.pi) : null;
     const pf = p ? this.doc.paraFmt(p) : null;
-    const page = this.editor.caretPage() - 1;
     drawRulers($<HTMLCanvasElement>('h-ruler'), $<HTMLCanvasElement>('v-ruler'), this.editor.host, this.editor.zoom, {
       pageW: g.W, pageH: g.H, left: g.left, right: g.right, top: g.top, bottom: g.bottom,
       indLeft: (pf?.left ?? 0) / 20, indRight: (pf?.right ?? 0) / 20, first: ((pf?.firstLine ?? 0) - (pf?.hanging ?? 0)) / 20,
-      pageTop: page * (g.H + this.editor.gapPt) * PX,
+      pageTop: g.y * PX, pageLeft: g.x * PX,
     });
   }
 
@@ -404,6 +407,34 @@ export class App {
   }
 
   /** Commit, run a structural command that returns the new caret, then re-render. */
+  /** Section holding the caret. */
+  caretSection(): number {
+    const r = this.editor.getRange();
+    return this.doc ? this.doc.sectionOfPara(r ? normRange(r).start.pi : 0) : 0;
+  }
+
+  /** Page setup for a part of the document (적용 대상). */
+  applyPageSetup(scope: PageScope, ps: PageSetup | ((cur: PageSetup) => PageSetup), label = '쪽 설정') {
+    const d = this.doc!, ed = this.editor;
+    const r = ed.getRange() ?? { start: { pi: 0, off: 0 }, end: { pi: 0, off: 0 } };
+    const { start } = normRange(r);
+    if (scope === 'all') d.setPageSetup(ps, undefined, label);
+    else if (scope === 'section') d.setPageSetup(ps, [d.sectionOfPara(start.pi)], label);
+    else if (scope === 'page') { const [a, b] = ed.pageBlocks(ed.caretPage()); d.setPageSetupForBlocks(ps, a, b, label); }
+    else if (scope === 'selection') { const pis = d.paraRange(r); d.setPageSetupForBlocks(ps, d.blockOf(pis[0]), d.blockOf(pis.at(-1)!), label); }
+    else d.setPageSetupForBlocks(ps, d.blockOf(start.pi), -1, label);
+  }
+
+  /** Re-lay out after paper, margins or orientation changed. */
+  afterPageChange() {
+    const r = this.editor.getRange();
+    this.editor.render();
+    if (r) this.editor.setRange(r, false);
+    if (this.fit) this.setZoom(this.fitZoom(this.fit), this.fit);
+    this.syncRulers();
+    this.queueSync();
+  }
+
   private structural(fn: (pos: Pos, range: Range) => Pos | null | void) {
     if (!this.doc) return;
     this.editor.commit();
@@ -547,7 +578,7 @@ export class App {
     c.register('file:save-as', { run: () => this.save(true), enabled: this.hasDoc }, 'ctrl+shift+s');
     c.register('file:print', { run: () => { ed.commit(); printDocument(ed); }, enabled: this.hasDoc }, 'ctrl+p');
     c.register('file:info', { run: () => this.infoDialog(), enabled: this.hasDoc });
-    c.register('file:about', () => { dialog('제품 정보', html(`<div style="line-height:1.7"><b>Oword</b> 0.2.7<br>DOCX 문서 편집기<br><span style="color:#5c6370;font-size:12px">Opptx(PPTX 편집기)와 같은 구조 — 문서 엔진 · 렌더러 · 명령 기반 UI · 데스크톱 셸 — 로 만든 Word 문서 편집기입니다. 이 구조는 HOP(HWP 편집기, MIT)을 참고했습니다.<br>MIT License · Copyright (c) 2026 moonlightpark<br>서드파티 라이선스: THIRD_PARTY_NOTICES.md<br>Microsoft와 관계없음. Microsoft Word는 Microsoft Corporation의 상표입니다.</span></div>`), [{ label: '확인', primary: true }]); });
+    c.register('file:about', () => { dialog('제품 정보', html(`<div style="line-height:1.7"><b>Oword</b> 0.2.8<br>DOCX 문서 편집기<br><span style="color:#5c6370;font-size:12px">Opptx(PPTX 편집기)와 같은 구조 — 문서 엔진 · 렌더러 · 명령 기반 UI · 데스크톱 셸 — 로 만든 Word 문서 편집기입니다. 이 구조는 HOP(HWP 편집기, MIT)을 참고했습니다.<br>MIT License · Copyright (c) 2026 moonlightpark<br>서드파티 라이선스: THIRD_PARTY_NOTICES.md<br>Microsoft와 관계없음. Microsoft Word는 Microsoft Corporation의 상표입니다.</span></div>`), [{ label: '확인', primary: true }]); });
     // edit
     c.register('edit:undo', {
       run: () => { ed.exitHF(); ed.commit(); const sel = d().undo() as Range | null; ed.render(); if (sel) ed.setRange(sel); this.buildStyleList(); this.queueSync(); },
@@ -668,7 +699,20 @@ export class App {
     c.register('style:normal', { run: () => this.applyStyle(d().styles.defaultPara ?? 'Normal'), enabled: this.hasDoc }, 'ctrl+shift+n');
     // page
     c.register('page:setup', {
-      run: () => pageSetupDialog(d().pageSetup(), (ps) => { ed.commit(); d().setPageSetup(ps); ed.render(); if (this.fit) this.setZoom(this.fitZoom(this.fit), this.fit); else this.syncRulers(); }),
+      run: () => {
+        ed.commit();
+        const multi = d().sections().length > 1;
+        const sec = this.caretSection();
+        const r = ed.getRange();
+        const sel = !!r && comparePos(r.start, r.end) !== 0;
+        const scopes: [PageScope, string][] = [['all', '전체 문서'], ...(multi ? [['section', '현재 구역'] as [PageScope, string]] : []),
+          ['page', '이 페이지'], ...(sel ? [['selection', '선택한 부분'] as [PageScope, string]] : []), ['forward', '현재 위치 이후']];
+        pageSetupDialog(d().sectionSetups()[sec], (ps, scope) => {
+          ed.commit();
+          this.applyPageSetup(scope as PageScope, ps);
+          this.afterPageChange();
+        }, scopes, multi ? 'section' : 'all');
+      },
       enabled: this.hasDoc,
     });
     // table
@@ -837,28 +881,56 @@ export class App {
         enabled: this.hasDoc,
       });
     }
-    const pageMenu = (at: string, items: [string, () => void][]) => menuPopover(anchor(at), items.map(([label, f]) => ({ label, action: () => { ed.commit(); f(); ed.render(); if (this.fit) this.setZoom(this.fitZoom(this.fit), this.fit); this.syncRulers(); } })));
+    const pageMenu = (at: string, items: [string, () => void][]) => menuPopover(anchor(at), items.map(([label, f]) => ({ label, action: () => { ed.commit(); f(); this.afterPageChange(); } })));
     const cm = TWIP_PER_CM;
     c.register('layout:margins', {
       run: () => pageMenu('tb-margins', [
-        ['보통 (위아래 2.54, 좌우 2.54 cm)', () => d().setPageSetup({ ...d().pageSetup(), top: 1440, bottom: 1440, left: 1440, right: 1440 })],
-        ['좁게 (1.27 cm)', () => d().setPageSetup({ ...d().pageSetup(), top: 720, bottom: 720, left: 720, right: 720 })],
-        ['보통 (한국 기본: 위 3, 아래 2.5, 좌우 3 cm)', () => d().setPageSetup({ ...d().pageSetup(), top: 3 * cm, bottom: 2.5 * cm, left: 3 * cm, right: 3 * cm })],
-        ['넓게 (위아래 2.54, 좌우 5.08 cm)', () => d().setPageSetup({ ...d().pageSetup(), top: 1440, bottom: 1440, left: 2880, right: 2880 })],
+        ['보통 (위아래 2.54, 좌우 2.54 cm)', () => d().setPageSetup((ps) => ({ ...ps, top: 1440, bottom: 1440, left: 1440, right: 1440 }))],
+        ['좁게 (1.27 cm)', () => d().setPageSetup((ps) => ({ ...ps, top: 720, bottom: 720, left: 720, right: 720 }))],
+        ['보통 (한국 기본: 위 3, 아래 2.5, 좌우 3 cm)', () => d().setPageSetup((ps) => ({ ...ps, top: 3 * cm, bottom: 2.5 * cm, left: 3 * cm, right: 3 * cm }))],
+        ['넓게 (위아래 2.54, 좌우 5.08 cm)', () => d().setPageSetup((ps) => ({ ...ps, top: 1440, bottom: 1440, left: 2880, right: 2880 }))],
         ['사용자 지정 여백…', () => this.cmd.run('page:setup')],
       ]),
       enabled: this.hasDoc,
     });
+    // Orientation: whole sections (one section = the whole document), or only this page, the
+    // selection or from here on — those get section breaks around them, as in Word.
+    for (const o of ['portrait', 'landscape'] as const) {
+      const name = o === 'landscape' ? '가로' : '세로';
+      c.register(`layout:orient-${o}`, {
+        run: () => { ed.commit(); d().setSectionOrientation(o, [this.caretSection()]); this.afterPageChange(); },
+        enabled: this.hasDoc,
+        checked: () => !!this.doc && d().sectionSetups()[this.caretSection()]?.orient === o,
+      });
+      for (const scope of ['page', 'selection', 'forward', 'all'] as const) {
+        c.register(`layout:orient-${o}-${scope}`, {
+          run: () => { ed.commit(); this.applyPageSetup(scope, (ps) => turn(ps, o), `${name} 방향`); this.afterPageChange(); },
+          enabled: scope === 'selection' ? () => { const r = this.hasDoc() && ed.getRange(); return !!r && comparePos(r.start, r.end) !== 0; } : this.hasDoc,
+        });
+      }
+    }
     c.register('layout:orientation', {
-      run: () => pageMenu('tb-orient', [
-        ['세로', () => { const ps = d().pageSetup(); if (ps.orient === 'landscape') d().setPageSetup({ ...ps, orient: 'portrait', w: Math.min(ps.w, ps.h), h: Math.max(ps.w, ps.h) }); }],
-        ['가로', () => { const ps = d().pageSetup(); if (ps.orient !== 'landscape') d().setPageSetup({ ...ps, orient: 'landscape', w: Math.max(ps.w, ps.h), h: Math.min(ps.w, ps.h) }); }],
-      ]),
+      run: () => {
+        const r = ed.getRange();
+        const sel = !!r && comparePos(r.start, r.end) !== 0;
+        const it = (label: string, id: string): MenuItem => ({ label, checked: this.cmd.checked(id), disabled: !this.cmd.enabled(id), action: () => this.cmd.run(id) });
+        const multi = d().sections().length > 1;
+        menuPopover(anchor('tb-orient'), [
+          it(multi ? '세로 (현재 구역)' : '세로', 'layout:orient-portrait'),
+          it(multi ? '가로 (현재 구역)' : '가로', 'layout:orient-landscape'),
+          { sep: true },
+          { label: '이 페이지만', sub: [it('세로', 'layout:orient-portrait-page'), it('가로', 'layout:orient-landscape-page')] },
+          ...(sel ? [{ label: '선택한 부분만', sub: [it('세로', 'layout:orient-portrait-selection'), it('가로', 'layout:orient-landscape-selection')] }] : []),
+          { label: '현재 위치부터 끝까지', sub: [it('세로', 'layout:orient-portrait-forward'), it('가로', 'layout:orient-landscape-forward')] },
+          ...(multi ? [{ label: '전체 문서', sub: [it('세로', 'layout:orient-portrait-all'), it('가로', 'layout:orient-landscape-all')] }] : []),
+        ]);
+      },
       enabled: this.hasDoc,
     });
+    c.register('insert:section-break', { run: () => { this.structural((pos) => d().insertSectionBreakAt(pos)); this.afterPageChange(); }, enabled: this.hasDoc });
     c.register('layout:size', {
       run: () => pageMenu('tb-size', ([['A4', 210, 297], ['A3', 297, 420], ['A5', 148, 210], ['B5 (JIS)', 182, 257], ['Letter', 215.9, 279.4], ['Legal', 215.9, 355.6]] as [string, number, number][]).map(([n, w, h]) => [
-        `${n} (${w} × ${h} mm)`, () => { const ps = d().pageSetup(); const [a, b] = [w * cm / 10, h * cm / 10]; d().setPageSetup({ ...ps, w: ps.orient === 'landscape' ? b : a, h: ps.orient === 'landscape' ? a : b }); },
+        `${n} (${w} × ${h} mm)`, () => d().setPageSetup((ps) => turn({ ...ps, w: w * cm / 10, h: h * cm / 10 }, ps.orient)),
       ] as [string, () => void]).concat([['기타 용지 크기…', () => this.cmd.run('page:setup')]])),
       enabled: this.hasDoc,
     });

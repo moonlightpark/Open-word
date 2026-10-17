@@ -34,6 +34,12 @@ export function fragment(doc: Document, xml: string): Element[] {
 }
 
 export function comparePos(a: Pos, b: Pos) { return a.pi - b.pi || a.off - b.off; }
+/** Page setup turned to `orient` (width and height swap). */
+export function turn(ps: PageSetup, orient: PageSetup['orient']): PageSetup {
+  const a = Math.min(ps.w, ps.h), b = Math.max(ps.w, ps.h);
+  return { ...ps, orient, w: orient === 'landscape' ? b : a, h: orient === 'landscape' ? a : b };
+}
+
 export function normRange(r: Range): Range { return comparePos(r.start, r.end) <= 0 ? r : { start: r.end, end: r.start }; }
 
 // Built-in style definitions added on demand when a document lacks them (Korean Word defaults).
@@ -302,8 +308,10 @@ export class DocxDocument {
     return s;
   }
 
-  pageSetup(): PageSetup {
-    const s = child(this.body, 'w:sectPr');
+  /** Page setup of the final section (the body's w:sectPr). */
+  pageSetup(): PageSetup { return this.pageSetupOf(child(this.body, 'w:sectPr')); }
+
+  pageSetupOf(s: Element | null): PageSetup {
     const sz = child(s, 'w:pgSz'), mar = child(s, 'w:pgMar');
     const w = wnum(sz, 'w') ?? 11906, h = wnum(sz, 'h') ?? 16838;
     return {
@@ -314,19 +322,107 @@ export class DocxDocument {
     };
   }
 
-  setPageSetup(ps: PageSetup) {
-    this.transact('쪽 설정', [], () => {
-      const all = [...descendants(this.body, 'w:sectPr')];
-      if (!all.length) all.push(this.sectPr());
-      for (const s of all) {
+  // Sections: a top-level paragraph whose w:pPr holds a w:sectPr ends a section; the body's own
+  // w:sectPr describes the last one. Each section has its own paper size, orientation and margins.
+
+  /** The w:sectPr of every section, in document order (the body's comes last). */
+  sections(): (Element | null)[] {
+    const out: (Element | null)[] = children(this.body, 'w:p').map((p) => path(p, 'w:pPr', 'w:sectPr')).filter((x): x is Element => !!x);
+    out.push(child(this.body, 'w:sectPr'));
+    return out;
+  }
+
+  sectionSetups(): PageSetup[] { return this.sections().map((s) => this.pageSetupOf(s)); }
+
+  /** Top-level blocks (paragraphs, tables) of the body. */
+  blocks(): Element[] { return Array.from(this.body.children).filter((c) => is(c, 'w:p') || is(c, 'w:tbl') || is(c, 'w:sdt')); }
+
+  /** The top-level block holding paragraph `pi` (itself, or the table it sits in). */
+  blockOf(pi: number): number {
+    let el: Element | null = this.para(pi);
+    while (el && el.parentElement !== this.body) el = el.parentElement;
+    return el ? this.blocks().indexOf(el) : -1;
+  }
+
+  /** Section index of top-level block `bi`. */
+  sectionOfBlock(bi: number): number {
+    let n = 0;
+    this.blocks().forEach((b, k) => { if (k < bi && is(b, 'w:p') && path(b, 'w:pPr', 'w:sectPr')) n++; });
+    return n;
+  }
+
+  sectionOfPara(pi: number): number { return this.sectionOfBlock(Math.max(0, this.blockOf(pi))); }
+
+  /** Apply page setup to every section, or only to `which`; `ps` may derive from each section's own. */
+  setPageSetup(ps: PageSetup | ((cur: PageSetup) => PageSetup), which?: number[], label = '쪽 설정') {
+    this.transact(label, [], () => {
+      const all = this.sections();
+      for (const [k, s0] of all.entries()) {
+        if (which && !which.includes(k)) continue;
+        const s = s0 ?? this.sectPr();
+        const v = typeof ps === 'function' ? ps(this.pageSetupOf(s)) : ps;
         const sz = ensureOrdered(s, 'w:pgSz', SECTPR_ORDER);
-        setAttr(sz, 'w:w', Math.round(ps.w));
-        setAttr(sz, 'w:h', Math.round(ps.h));
-        if (ps.orient === 'landscape') setAttr(sz, 'w:orient', 'landscape'); else sz.removeAttributeNS(NS.w, 'orient');
+        setAttr(sz, 'w:w', Math.round(v.w));
+        setAttr(sz, 'w:h', Math.round(v.h));
+        if (v.orient === 'landscape') setAttr(sz, 'w:orient', 'landscape'); else sz.removeAttributeNS(NS.w, 'orient');
         const mar = ensureOrdered(s, 'w:pgMar', SECTPR_ORDER);
-        for (const k of ['top', 'right', 'bottom', 'left', 'header', 'footer', 'gutter'] as const) setAttr(mar, 'w:' + k, Math.round(ps[k]));
+        for (const k2 of ['top', 'right', 'bottom', 'left', 'header', 'footer', 'gutter'] as const) setAttr(mar, 'w:' + k2, Math.round(v[k2]));
       }
     });
+  }
+
+  /**
+   * Start a new section (next page) at top-level block `bi`: the block before it gets a copy of its
+   * section's w:sectPr. After a table an empty paragraph carries the break, as in Word.
+   * Returns false when `bi` already starts a section.
+   */
+  insertSectionBreak(bi: number): boolean {
+    const blocks = this.blocks();
+    if (bi <= 0 || bi > blocks.length) return false;
+    const prev = blocks[bi - 1];
+    if (is(prev, 'w:p') && path(prev, 'w:pPr', 'w:sectPr')) return false;
+    const src = this.sections()[this.sectionOfBlock(bi - 1)] ?? this.sectPr();
+    const copy = src.cloneNode(true) as Element;
+    removeChild(copy, 'w:type'); // next page
+    let host = prev;
+    if (is(prev, 'w:p')) {
+      // A page break ending the paragraph would leave an empty page before the new section.
+      const lastRun = children(prev, 'w:r').at(-1);
+      const br = lastRun?.lastElementChild;
+      if (lastRun && br && is(br, 'w:br') && wa(br, 'type') === 'page' && lastRun === prev.lastElementChild) {
+        br.remove();
+        if (!Array.from(lastRun.children).some((c) => !is(c, 'w:rPr'))) lastRun.remove();
+      }
+    } else {
+      host = create(this.xml, 'w:p');
+      prev.after(host);
+    }
+    ensureOrdered(ensurePPr(host), 'w:sectPr', PPR_ORDER).replaceWith(copy);
+    return true;
+  }
+
+  /**
+   * Page setup for top-level blocks [first, last] only (Word's 「적용 대상: 이 페이지 / 선택한 부분 /
+   * 현재 위치 이후」): section breaks go around them, then their section changes. `last` = -1 means
+   * to the end of the document.
+   */
+  setPageSetupForBlocks(ps: PageSetup | ((cur: PageSetup) => PageSetup), first: number, last = -1, label = '쪽 설정') {
+    this.transact(label, [], () => {
+      const n = this.blocks().length;
+      if (last >= 0 && last + 1 < n) this.insertSectionBreak(last + 1);
+      this.insertSectionBreak(first); // blocks after `first` may shift, `first` itself does not
+      this.setPageSetup(ps, [this.sectionOfBlock(first)], label);
+    });
+  }
+
+  /** Orientation for top-level blocks [first, last] only; see setPageSetupForBlocks. */
+  setOrientation(orient: PageSetup['orient'], first: number, last = -1) {
+    this.setPageSetupForBlocks((ps) => turn(ps, orient), first, last, orient === 'landscape' ? '가로 방향' : '세로 방향');
+  }
+
+  /** Orientation of whole sections. */
+  setSectionOrientation(orient: PageSetup['orient'], which?: number[]) {
+    this.setPageSetup((ps) => turn(ps, orient), which, orient === 'landscape' ? '가로 방향' : '세로 방향');
   }
 
   /** Header/footer parts for page `n` (1-based) of the final section. */
@@ -751,6 +847,25 @@ export class DocxDocument {
       const br = makeRun(this.xml, rPr, create(this.xml, 'w:br', { 'w:type': 'page' }));
       p.appendChild(br);
       path(second, 'w:pPr', 'w:pageBreakBefore')?.remove();
+      return { pi: pos.pi + 1, off: 0 };
+    });
+  }
+
+  /** 구역 나누기 (다음 페이지) at `pos`: the paragraph splits and a new section starts after it. */
+  insertSectionBreakAt(pos: Pos): Pos {
+    return this.transact('구역 나누기', [], () => {
+      const p = this.para(pos.pi)!;
+      let top: Element = p;
+      while (top.parentElement && top.parentElement !== this.body) top = top.parentElement;
+      if (top !== p) {
+        // Inside a table: the new section starts after the table.
+        this.insertSectionBreak(this.blocks().indexOf(top) + 1);
+        return pos;
+      }
+      const second = splitParagraph(p, pos.off);
+      path(second, 'w:pPr', 'w:pageBreakBefore')?.remove();
+      this.invalidate();
+      this.insertSectionBreak(this.blocks().indexOf(second));
       return { pi: pos.pi + 1, off: 0 };
     });
   }

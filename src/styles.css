@@ -182,7 +182,8 @@ kbd { background: #f1f3f6; border: 1px solid #ccd; border-radius: 3px; padding: 
    Hangul overlapping and clipped. The turn also maps "top" alignment to the left, as in Word. */
 .w-tbl td.w-vert-up { writing-mode: vertical-rl; text-orientation: sideways; transform: rotate(180deg); }
 #doc-root .w-tbl.nogrid td, .w-tbl.nogrid td { outline: 0.5px dashed #c8ccd2; outline-offset: -0.5px; }
-#doc-root.show-marks .w-p:not(:has(> .w-pgbr:last-child))::after { content: '¶'; color: #4a7fd6; font-family: var(--font-ui); font-weight: normal; font-style: normal; text-decoration: none; }
+#doc-root.show-marks .w-p[data-sect]::after { content: '¶ ······ 구역 나누기(다음 페이지) ······'; color: #4a7fd6; font: 10px var(--font-ui); white-space: nowrap; }
+#doc-root.show-marks .w-p:not([data-sect]):not(:has(> .w-pgbr:last-child))::after { content: '¶'; color: #4a7fd6; font-family: var(--font-ui); font-weight: normal; font-style: normal; text-decoration: none; }
 #doc-root.show-marks .w-tab { background: linear-gradient(transparent 45%, #9cb6e0 45%, #9cb6e0 55%, transparent 55%); }
 ::selection { background: rgba(43,111,214,.28); }
 

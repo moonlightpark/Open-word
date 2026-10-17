@@ -2,7 +2,7 @@
 // Typing is handled natively by the browser and committed to the model on idle (edit.ts);
 // structural keys (Enter, Tab) and every formatting command go through the engine, after which
 // the affected paragraphs are re-rendered and the selection is restored in model coordinates.
-import { DocxDocument, Pos, Range, comparePos, normRange } from '../engine/document';
+import { DocxDocument, PageSetup, Pos, Range, comparePos, normRange } from '../engine/document';
 import { commitContainer, commitDom, domToPos, isPara, measure, paraElOf, posToDom } from '../engine/edit';
 import { RunProps, setRunProps } from '../engine/model';
 import { ImageCache, Registry, newRegistry, renderBlocks, renderHeaderFooter, renderParagraph, runCss } from '../engine/render';
@@ -20,6 +20,31 @@ export interface EditorHooks {
 export interface HFEdit { kind: 'header' | 'footer'; part: string; page: number; el: HTMLElement; reg: Registry; pending: boolean }
 
 export interface BlockBox { el: HTMLElement; y: number; h: number; mt: number; page: number; endPage: number }
+
+/** Page geometry in pt: paper, margins and text column width. */
+export interface Geo { ps: PageSetup; W: number; H: number; top: number; bottom: number; left: number; right: number; CW: number }
+/** A laid-out page: its geometry, section and position (pt) in the host. */
+export interface PageGeo extends Geo { x: number; y: number; sect: number }
+
+export function geoOf(ps: PageSetup): Geo {
+  return { ps, W: ps.w / 20, H: ps.h / 20, top: ps.top / 20, bottom: ps.bottom / 20, left: ps.left / 20, right: ps.right / 20, CW: (ps.w - ps.left - ps.right) / 20 };
+}
+
+const sameGeo = (a: Geo, b: Geo) => a.W === b.W && a.H === b.H && a.top === b.top && a.bottom === b.bottom && a.left === b.left && a.right === b.right;
+
+/** Extra left/right margin (pt) on a top-level block so it sits in its section's text column. */
+function shiftBlock(b: HTMLElement, dx: number, dr: number) {
+  if (dx || dr) {
+    if (b.dataset.ml0 === undefined) { b.dataset.ml0 = b.style.marginLeft; b.dataset.mr0 = b.style.marginRight; }
+    b.style.marginLeft = `calc(${b.dataset.ml0 || '0pt'} + ${dx}pt)`;
+    b.style.marginRight = dr ? `calc(${b.dataset.mr0 || '0pt'} + ${dr}pt)` : b.dataset.mr0!;
+  } else if (b.dataset.ml0 !== undefined) {
+    b.style.marginLeft = b.dataset.ml0;
+    b.style.marginRight = b.dataset.mr0 ?? '';
+    delete b.dataset.ml0;
+    delete b.dataset.mr0;
+  }
+}
 
 const PX = 4 / 3; // CSS px per pt
 
@@ -122,10 +147,15 @@ export class DocEditor {
 
   // ---------------------------------------------------------------- pagination
 
-  geometry() {
-    const ps = this.doc.pageSetup();
-    const W = ps.w / 20, H = ps.h / 20;
-    return { ps, W, H, top: ps.top / 20, bottom: ps.bottom / 20, left: ps.left / 20, right: ps.right / 20, CW: (ps.w - ps.left - ps.right) / 20 };
+  /** Geometry (pt) of one page: its section's paper and margins, and where the page sits in the host. */
+  pageGeo: PageGeo[] = [];
+  private hostW = 0;
+  private hostH = 0;
+
+  /** Geometry of page `page` (1-based), by default the caret's page. */
+  geometry(page?: number): PageGeo {
+    const g = this.pageGeo[(page ?? (this.pageGeo.length > 1 ? this.caretPage() : 1)) - 1] ?? this.pageGeo.at(-1);
+    return g ?? { ...geoOf(this.doc.sectionSetups()[0]), x: 0, y: 0, sect: 0 };
   }
 
   layoutSoon() {
@@ -146,17 +176,43 @@ export class DocEditor {
     if (!doc) return;
     if (this.mode === 'web') { this.layoutWeb(); return; }
     this.host.classList.remove('web-mode');
-    const g = this.geometry();
-    this.root.style.left = g.left + 'pt';
-    this.root.style.top = g.top + 'pt';
-    this.root.style.width = g.CW + 'pt';
-    this.host.style.width = g.W + 'pt';
+    // Every section has its own paper and margins; pages of different widths are centred.
+    const geos = doc.sectionSetups().map(geoOf);
+    const maxW = Math.max(...geos.map((g) => g.W));
+    const offX = (g: Geo) => (maxW - g.W) / 2;
+    const g0 = geos[0];
+    const rootX = offX(g0) + g0.left;
+    this.root.style.left = rootX + 'pt';
+    this.root.style.top = g0.top + 'pt';
+    this.root.style.width = g0.CW + 'pt';
+    this.host.style.width = maxW + 'pt';
     this.root.classList.toggle('show-marks', this.showMarks);
     const blocks = Array.from(this.root.children).filter((c): c is HTMLElement => c instanceof HTMLElement && !c.hidden);
-    for (const b of blocks) b.style.removeProperty('--push');
+    // Section of each block, and its horizontal place: blocks of a section whose text column differs
+    // from the first section's move with extra (possibly negative) margins.
+    const sectOf: number[] = [];
+    let sc = 0;
+    for (const b of blocks) {
+      b.style.removeProperty('--push');
+      sectOf.push(Math.min(sc, geos.length - 1));
+      if (b.dataset.sect === '1') sc++;
+      const g = geos[sectOf.at(-1)!];
+      const dx = offX(g) + g.left - rootX, dr = rootX + g0.CW - (offX(g) + g.left + g.CW);
+      shiftBlock(b, dx, b instanceof HTMLTableElement ? 0 : dr);
+    }
     this.root.querySelectorAll(':scope > table > tbody > tr.pg-spacer').forEach((r) => r.remove());
-    const stride = (g.H + this.gapPt) * PX; // px from one page's content top to the next
-    const content = (g.H - g.top - g.bottom) * PX;
+    // Pages: section and top (pt in the host). Content tops are in root px.
+    const pages: { sect: number; y: number }[] = [];
+    const ensure = (p: number, sect: number) => {
+      while (pages.length <= p) {
+        const prev = pages.at(-1);
+        pages.push({ sect, y: prev ? prev.y + geos[prev.sect].H + this.gapPt : 0 });
+      }
+    };
+    const cTop = (p: number, sect: number) => { ensure(p, sect); const g = geos[pages[p].sect]; return (pages[p].y + g.top - g0.top) * PX; };
+    const cH = (p: number) => { const g = geos[pages[p].sect]; return (g.H - g.top - g.bottom) * PX; };
+    /** Page holding root y `y` (px), adding pages of section `sect` as needed. */
+    const pageAt = (y: number, from: number, sect: number) => { let p = from; while (y >= cTop(p + 1, sect)) p++; return p; };
     const measured = blocks.map((b) => {
       const h = b.offsetHeight;
       // A table only needs its first row to fit; later rows move to the next page one by one.
@@ -165,23 +221,34 @@ export class DocEditor {
     });
     const out: BlockBox[] = [];
     let shift = 0, page = 0, breakNext = false;
-    for (const m of measured) {
+    ensure(0, 0);
+    for (const [k, m] of measured.entries()) {
+      const sect = sectOf[k];
       let y = m.top + shift;
-      const pageTop = page * stride;
-      const atTop = y - m.mt <= pageTop + 0.5;
+      const atTop = y - m.mt <= cTop(page, sect) + 0.5;
       const pushTo = (to: number) => {
-        const delta = to * stride - (y - m.mt);
+        pages.length = Math.min(pages.length, to); // pages past the last used one are only probes
+        const delta = cTop(to, sect) - (y - m.mt);
         if (delta > 0) { shift += delta; y += delta; m.el.style.setProperty('--push', delta + 'px'); }
         page = to;
       };
-      const forced = breakNext || m.el.dataset.breakBefore === '1';
+      // A section with other paper or margins always starts a new page.
+      const newGeo = pages[page].sect !== sect && !sameGeo(geos[pages[page].sect], geos[sect]);
+      const forced = breakNext || m.el.dataset.breakBefore === '1' || newGeo;
       breakNext = false;
-      if (forced && !(atTop && y > 0)) pushTo(page + 1);
-      else if (y + m.fit > pageTop + content && m.fit <= content && !atTop) {
+      const content = cH(page);
+      if (forced && !(atTop && y > 0 && !newGeo)) {
+        if (atTop && newGeo && !out.some((b) => b.endPage >= page)) {
+          // Nothing on this page yet: it becomes the new section's page.
+          pages.length = page;
+          pushTo(page);
+        } else pushTo(page + 1);
+      } else if (y + m.fit > cTop(page, sect) + content && m.fit <= content && !atTop) {
         const prev = out[out.length - 1];
-        if (prev && prev.el.dataset.keepNext === '1' && prev.page === page && prev.y - prev.mt > pageTop + 0.5 && prev.h + m.fit <= content) {
+        if (prev && prev.el.dataset.keepNext === '1' && prev.page === page && prev.y - prev.mt > cTop(page, sect) + 0.5 && prev.h + m.fit <= cH(page)) {
           // Keep a heading with the paragraph that follows it: move the heading instead.
-          const delta = (page + 1) * stride - (prev.y - prev.mt);
+          pages.length = page + 1;
+          const delta = cTop(page + 1, sect) - (prev.y - prev.mt);
           const cur = parseFloat(prev.el.style.getPropertyValue('--push')) || 0;
           prev.el.style.setProperty('--push', cur + delta + 'px');
           shift += delta;
@@ -193,15 +260,15 @@ export class DocEditor {
       let h = m.h;
       if (m.el instanceof HTMLTableElement) {
         // Split the table between rows: a spacer row carries the rest of the page and the gap.
-        let extra = 0, pg = page;
+        let pg = page;
         const cols = m.el.querySelector('colgroup')?.children.length || 1;
         for (const tr of Array.from(m.el.rows).slice(1)) {
           // offsetTop already includes spacer rows inserted above this one.
           const rt = y + tr.offsetTop, rh = tr.offsetHeight;
-          const bottom = pg * stride + content;
+          const bottom = cTop(pg, sect) + cH(pg);
           if (rt + rh <= bottom) continue;
-          if (rh > content || rt <= pg * stride + 0.5) { pg = Math.floor((rt + rh) / stride); continue; }
-          const gap = (pg + 1) * stride - rt;
+          if (rh > cH(pg) || rt <= cTop(pg, sect) + 0.5) { pg = pageAt(rt + rh - 1, pg, sect); continue; }
+          const gap = cTop(pg + 1, sect) - rt;
           const sp = document.createElement('tr');
           sp.className = 'pg-spacer';
           sp.contentEditable = 'false';
@@ -212,21 +279,53 @@ export class DocEditor {
           tr.before(sp);
           pg++;
         }
-        extra = m.el.offsetHeight - m.h;
+        const extra = m.el.offsetHeight - m.h;
         shift += extra;
         h += extra;
       }
-      const endPage = Math.max(page, Math.floor((y + h - 1) / stride));
+      const endPage = Math.max(page, pageAt(y + h - 1, page, sect));
       out.push({ el: m.el, y, h, mt: m.mt, page, endPage });
       page = endPage;
       if (m.el.dataset.breakAfter === '1' || m.el.querySelector('.w-pgbr')) breakNext = true;
     }
     this.layout = out;
     this.pages = Math.max(1, (out.at(-1)?.endPage ?? 0) + 1 + (breakNext ? 1 : 0));
-    this.updateFields(out, stride);
-    this.buildFrames(g);
+    const lastSect = Math.min(sc, geos.length - 1);
+    pages.length = Math.min(pages.length, this.pages);
+    ensure(this.pages - 1, lastSect);
+    this.pageGeo = pages.map((p) => ({ ...geos[p.sect], x: offX(geos[p.sect]), y: p.y, sect: p.sect }));
+    const last = this.pageGeo.at(-1)!;
+    this.hostW = maxW;
+    this.hostH = last.y + last.H;
+    this.updateFields(out);
+    this.buildFrames();
     this.applyZoom();
     this.hooks.layoutChanged();
+  }
+
+  /** Top-level blocks [first, last] (indices in doc.blocks()) laid out on page `page` (1-based). */
+  pageBlocks(page: number): [number, number] {
+    const all = this.doc.blocks();
+    const idx = (b: BlockBox) => all.indexOf(this.reg.dom.get(b.el) as Element);
+    const on = this.layout.filter((b) => b.page === page - 1 && idx(b) >= 0);
+    if (on.length) return [idx(on[0]), idx(on.at(-1)!)];
+    // One long block runs through the whole page.
+    const over = this.layout.find((b) => b.page < page - 1 && b.endPage >= page - 1 && idx(b) >= 0);
+    const i = over ? idx(over) : Math.max(0, all.length - 1);
+    return [i, i];
+  }
+
+  /** Root y (px) where the text of page `i` (0-based) starts. */
+  contentTop(i: number): number {
+    const g = this.pageGeo[i], g0 = this.pageGeo[0];
+    return g && g0 ? (g.y + g.top - g0.top) * PX : 0;
+  }
+
+  /** 0-based page holding root y `y` (px). */
+  pageAtY(y: number): number {
+    let p = 0;
+    while (p + 1 < this.pageGeo.length && y >= this.contentTop(p + 1)) p++;
+    return p;
   }
 
   /** Web layout: one white surface as wide as the window; tables keep their widths. */
@@ -249,7 +348,8 @@ export class DocEditor {
     this.layout = Array.from(this.root.children).filter((c): c is HTMLElement => c instanceof HTMLElement && !c.hidden)
       .map((el) => ({ el, y: el.offsetTop, h: el.offsetHeight, mt: 0, page: 0, endPage: 0 }));
     this.pages = 1;
-    this.updateFields(this.layout, Number.MAX_SAFE_INTEGER);
+    this.pageGeo = [];
+    this.updateFields(this.layout);
     this.host.style.transform = `scale(${this.zoom})`;
     this.wrap.style.width = availPx + 'px';
     this.wrap.style.height = hPt * (4 / 3) * this.zoom + 'px';
@@ -267,29 +367,31 @@ export class DocEditor {
   }
 
   /** PAGE / NUMPAGES fields in the body show the laid-out values. */
-  private updateFields(boxes: BlockBox[], stride: number) {
+  private updateFields(boxes: BlockBox[]) {
     for (const b of boxes) {
       for (const f of Array.from(b.el.querySelectorAll<HTMLElement>('.w-fld[data-fld]'))) {
         const p = f.closest('p.w-p') as HTMLElement | null;
         const clean = p && this.reg.sig.get(p) === p.innerHTML;
         const top = b.y + (f.getBoundingClientRect().top - b.el.getBoundingClientRect().top) / this.zoom;
-        const v = String(f.dataset.fld === 'PAGE' ? Math.floor(top / stride) + 1 : this.pages);
+        const v = String(f.dataset.fld === 'PAGE' ? (this.mode === 'web' ? 1 : this.pageAtY(top) + 1) : this.pages);
         if (f.textContent !== v) f.textContent = v;
         if (p && clean) this.reg.sig.set(p, p.innerHTML);
       }
     }
   }
 
-  private buildFrames(g: ReturnType<DocEditor['geometry']>) {
+  private buildFrames() {
     const doc = this.doc;
     // The header/footer being edited stays in place while the rest of the frames are rebuilt.
     const editing = this.hf?.el;
     editing?.remove();
     this.frames.innerHTML = '';
     for (let i = 0; i < this.pages; i++) {
+      const g = this.pageGeo[i];
       const f = document.createElement('div');
       f.className = 'page';
-      f.style.top = i * (g.H + this.gapPt) + 'pt';
+      f.style.top = g.y + 'pt';
+      f.style.left = g.x + 'pt';
       f.style.width = g.W + 'pt';
       f.style.height = g.H + 'pt';
       const hf = doc.headerFooter(i + 1);
@@ -312,7 +414,7 @@ export class DocEditor {
       f.appendChild(marks);
       this.frames.appendChild(f);
     }
-    this.host.style.height = this.pages * (g.H + this.gapPt) - this.gapPt + 'pt';
+    this.host.style.height = this.hostH + 'pt';
     if (editing && this.hf) {
       const f = this.frames.children[Math.min(this.hf.page, this.pages) - 1] as HTMLElement | undefined;
       f?.querySelector(this.hf.kind === 'header' ? '.page-header' : '.page-footer')?.remove();
@@ -333,7 +435,7 @@ export class DocEditor {
     this.commit();
     const part = doc.openHeaderFooter(kind, page);
     this.paginate();
-    const g = this.geometry();
+    const g = this.geometry(page);
     const el = document.createElement('div');
     el.className = (kind === 'header' ? 'page-header' : 'page-footer') + ' hf-editing';
     el.contentEditable = 'true';
@@ -350,7 +452,7 @@ export class DocEditor {
     });
     el.addEventListener('beforeinput', (e) => { if (e.inputType.startsWith('format')) e.preventDefault(); });
     this.host.classList.add('hf-mode');
-    this.buildFrames(g);
+    this.buildFrames();
     const last = el.querySelectorAll('p.w-p');
     const p = last[last.length - 1] as HTMLElement | undefined;
     el.focus({ preventScroll: true });
@@ -472,10 +574,9 @@ export class DocEditor {
   private applyZoom() {
     const doc = this.hooks.doc();
     if (!doc || this.mode === 'web') return;
-    const g = this.geometry();
     this.host.style.transform = `scale(${this.zoom})`;
-    this.wrap.style.width = g.W * PX * this.zoom + 'px';
-    this.wrap.style.height = (this.pages * (g.H + this.gapPt) - this.gapPt) * PX * this.zoom + 'px';
+    this.wrap.style.width = this.hostW * PX * this.zoom + 'px';
+    this.wrap.style.height = this.hostH * PX * this.zoom + 'px';
   }
 
   /** 1-based page of the caret. */
@@ -488,13 +589,11 @@ export class DocEditor {
     while (el && el.parentNode !== this.root) el = el.parentNode;
     const box = this.layout.find((b) => b.el === el);
     if (!box) return 1;
-    const g = this.geometry();
-    const stride = (g.H + this.gapPt) * PX;
     // Inside long blocks use the caret rectangle.
     const r = sel!.rangeCount ? sel!.getRangeAt(0).getBoundingClientRect() : null;
     if (r && r.height && box.endPage > box.page) {
       const rootTop = this.root.getBoundingClientRect().top;
-      return Math.floor((r.top - rootTop) / this.zoom / stride) + 1;
+      return this.pageAtY((r.top - rootTop) / this.zoom) + 1;
     }
     return box.page + 1;
   }
@@ -702,11 +801,12 @@ export class DocEditor {
       if (this.hf && (this.hf.el.contains(t))) return;
       const page = t.closest('.page') as HTMLElement | null;
       if (!page) { if (this.hf && this.root.contains(t)) this.exitHF(); return; }
-      const g = this.geometry();
+      const n = Array.from(this.frames.children).indexOf(page) + 1;
+      const g = this.geometry(n);
       const r = page.getBoundingClientRect();
       const y = (e.clientY - r.top) / this.zoom / (4 / 3); // pt from the page top
-      if (y < g.top) this.enterHF('header', Array.from(this.frames.children).indexOf(page) + 1);
-      else if (y > g.H - g.bottom) this.enterHF('footer', Array.from(this.frames.children).indexOf(page) + 1);
+      if (y < g.top) this.enterHF('header', n);
+      else if (y > g.H - g.bottom) this.enterHF('footer', n);
     });
     this.root.addEventListener('dblclick', () => { if (this.hf) this.exitHF(); });
     root.addEventListener('click', (e) => {
